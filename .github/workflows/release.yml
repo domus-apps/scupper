@@ -1,0 +1,22 @@
+name: Release
+
+# Publishes a GitHub Release with a zipped Scupper.app when a version tag is pushed:
+#   git tag v0.1.0 && git push origin v0.1.0
+# The pipeline itself is shared by every Domus app — see
+# domus-apps/.github/.github/workflows/release-app.yml. A workflow_dispatch
+# run builds, signs, and notarizes without publishing (dry run).
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    uses: domus-apps/.github/.github/workflows/release-app.yml@main
+    with:
+      app: Scupper
+    secrets: inherit

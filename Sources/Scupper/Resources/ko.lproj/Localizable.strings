@@ -1,0 +1,57 @@
+/* Scupper 한국어 — 영어 원문이 키입니다 (Localization.swift 참고) */
+
+/* 메뉴 */
+"About Scupper" = "Scupper에 관하여";
+"Check for Updates…" = "업데이트 확인…";
+"Quit Scupper" = "Scupper 종료";
+"File" = "파일";
+"Open…" = "열기…";
+"Close Window" = "윈도우 닫기";
+"Window" = "윈도우";
+"Minimize" = "축소";
+
+/* 빈 상태 */
+"Drop an App Here" = "여기에 앱을 놓으세요";
+"Scupper finds everything the app left behind and moves it to the Trash along with the app." = "Scupper가 앱이 남긴 파일을 모두 찾아 앱과 함께 휴지통으로 옮깁니다.";
+"Choose App…" = "앱 선택…";
+"That isn't an app, or it has no bundle identifier." = "앱이 아니거나 번들 식별자가 없습니다.";
+"Choose" = "선택";
+"Choose the app to remove along with its leftovers." = "남은 파일과 함께 삭제할 앱을 선택하세요.";
+"Looking for leftovers…" = "남은 파일을 찾는 중…";
+
+/* 검토 */
+"Move the app itself to the Trash" = "앱 자체도 휴지통으로 옮기기";
+"Part of macOS. It can't be removed." = "macOS의 일부라 삭제할 수 없습니다.";
+"Left behind in your Library" = "라이브러리에 남은 파일";
+"Nothing. This app kept its files to itself." = "없습니다. 이 앱은 밖에 파일을 남기지 않았습니다.";
+"1 item" = "1개 항목";
+"%d items" = "%d개 항목";
+"Choose Another…" = "다른 앱 선택…";
+"Move to Trash" = "휴지통으로 이동";
+"Still running. Quit it and try again." = "아직 실행 중입니다. 종료한 뒤 다시 시도하세요.";
+"Another copy is installed at %@. It shares these files, so none are checked." = "%@에 같은 앱이 하나 더 설치되어 있습니다. 이 파일들을 함께 쓰므로 아무것도 선택하지 않았습니다.";
+
+/* 완료 */
+"Moved to the Trash" = "휴지통으로 옮겼습니다";
+"Nothing Was Moved" = "옮긴 항목이 없습니다";
+"%@, %@. Empty the Trash when you're ready." = "%@, %@. 준비되면 휴지통을 비우세요.";
+"Done" = "완료";
+"Couldn't be moved" = "옮기지 못한 항목";
+
+/* 위치 */
+"Application Support" = "응용 프로그램 지원";
+"Caches" = "캐시";
+"Preferences" = "환경설정";
+"Container" = "컨테이너";
+"Group Container" = "그룹 컨테이너";
+"Saved State" = "저장된 상태";
+"Cookies & Web Storage" = "쿠키 및 웹 저장소";
+"WebKit Data" = "WebKit 데이터";
+"Logs" = "로그";
+"Crash Reports" = "진단 보고서";
+"Launch Agent" = "로그인 시 실행 항목";
+"Application Scripts" = "응용 프로그램 스크립트";
+"Background Downloads" = "백그라운드 다운로드";
+"Analytics Logs" = "분석 로그";
+"Recent Documents List" = "최근 문서 목록";
+"%d files" = "파일 %d개";
