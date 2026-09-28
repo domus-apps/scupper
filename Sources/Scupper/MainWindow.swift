@@ -48,6 +48,7 @@ final class ScupperModel: ObservableObject {
     @Published var isTargeted = false
 
     private var scanTask: Task<Void, Never>?
+    private var others = OtherApps.none
 
     func open(_ url: URL) {
         guard let inspected = AppInspector.inspect(url) else {
@@ -64,16 +65,27 @@ final class ScupperModel: ObservableObject {
         phase = .scanning
         let identity = inspected.identity
         scanTask = Task { [weak self] in
-            let found = await Task.detached(priority: .userInitiated) {
+            async let claims = Task.detached(priority: .userInitiated) {
+                InstalledApps.claims(excluding: inspected.url)
+            }.value
+            async let scan = Task.detached(priority: .userInitiated) {
                 LeftoverScanner.scan(identity: identity)
             }.value
-            let size = await Task.detached(priority: .userInitiated) {
+            async let measured = Task.detached(priority: .userInitiated) {
                 LeftoverScanner.size(of: inspected.url)
             }.value
+            let others = await claims
+            let found = LeftoverScanner.markingShared(await scan, identity: identity, others: others)
+            let size = await measured
             guard let self, !Task.isCancelled, self.app == inspected else { return }
+            self.others = others
             self.leftovers = found
-            // Shared with another copy: nothing checked until the user says so.
-            self.selection = self.otherCopies.isEmpty ? Set(found.map(\.url)) : []
+            /* Shared with another copy, or part of macOS (whose files
+               stay in use as long as the system does): nothing checked
+               until the user says so. Otherwise everything but what
+               other apps use too. */
+            self.selection = self.otherCopies.isEmpty && !inspected.isSystem
+                ? Set(found.filter(\.sharedWith.isEmpty).map(\.url)) : []
             self.appSize = size
             self.phase = .review
         }
@@ -91,6 +103,9 @@ final class ScupperModel: ObservableObject {
             open(url)
         }
     }
+
+    var userLeftovers: [Leftover] { leftovers.filter { !$0.category.isSystemWide } }
+    var systemLeftovers: [Leftover] { leftovers.filter(\.category.isSystemWide) }
 
     var selectedLeftovers: [Leftover] {
         leftovers.filter { selection.contains($0.url) }
@@ -116,12 +131,13 @@ final class ScupperModel: ObservableObject {
             var failures: [RemovalFailure] = []
             var targets: [URL] = []
             if includeApp {
-                switch await Remover.quit(bundleID: app.bundleID) {
+                switch await Remover.quit(app) {
                 case .quit:
                     // The quit itself may have written files; take those too.
                     let identity = app.identity
+                    let others = self.others
                     let rescan = await Task.detached(priority: .userInitiated) {
-                        LeftoverScanner.scan(identity: identity)
+                        LeftoverScanner.scan(identity: identity, others: others)
                     }.value
                     items += LeftoverScanner.additions(after: rescan, shown: shown, selection: selection)
                     targets.append(app.url)
@@ -133,11 +149,20 @@ final class ScupperModel: ObservableObject {
                 }
             }
             let sizes = Dictionary(items.map { ($0.url, $0.size ?? 0) }, uniquingKeysWith: { a, _ in a })
-            targets = items.map(\.url) + targets
             // A grouped row moves its files; every other row moves itself.
-            let files = items.flatMap(\.files) + targets
+            let files = Remover.targets(for: items, app: targets.first)
+            let fileSizes = sizes.merging([app.url: appSize]) { a, _ in a }
             let outcome = await Task.detached(priority: .userInitiated) {
-                Remover.trash(files)
+                /* The user's own items first, then — behind one password
+                   prompt — /Library's and whatever of ours needed an
+                   administrator after all (a root-owned app, say). */
+                let own = Remover.trash(files.filter { !Remover.needsAdministrator($0) }, sizes: fileSizes)
+                let elevated = files.filter(Remover.needsAdministrator)
+                    + own.failures.filter(\.needsAdministrator).map(\.url)
+                let admin = Remover.trashAsAdministrator(elevated, sizes: fileSizes)
+                let retried = Set(elevated)
+                return (trashed: own.trashed + admin.trashed,
+                        failures: own.failures.filter { !retried.contains($0.url) } + admin.failures)
             }.value
             let trashed = Set(outcome.trashed)
             var bytes: Int64 = trashed.contains(app.url) ? appSize : 0
@@ -149,6 +174,30 @@ final class ScupperModel: ObservableObject {
             self.phase = .done(RemovalSummary(
                 trashedCount: count, bytes: bytes,
                 failures: failures + outcome.failures))
+        }
+    }
+
+    @Published private(set) var isRetrying = false
+
+    /// Moves again what macOS's container protection refused — after the
+    /// user has given Scupper Full Disk Access, it goes this time.
+    func retryProtected() {
+        guard case .done(let summary) = phase, !isRetrying else { return }
+        let retry = summary.failures.filter(\.needsFullDiskAccess)
+        guard !retry.isEmpty else { return }
+        isRetrying = true
+        let sizes = Dictionary(retry.map { ($0.url, $0.size) }, uniquingKeysWith: { a, _ in a })
+        Task {
+            let outcome = await Task.detached(priority: .userInitiated) {
+                Remover.trash(retry.map(\.url), sizes: sizes)
+            }.value
+            let trashed = Set(outcome.trashed)
+            let again = Dictionary(outcome.failures.map { ($0.url, $0) }, uniquingKeysWith: { a, _ in a })
+            self.isRetrying = false
+            self.phase = .done(RemovalSummary(
+                trashedCount: summary.trashedCount + trashed.count,
+                bytes: summary.bytes + trashed.reduce(0) { $0 + (sizes[$1] ?? 0) },
+                failures: summary.failures.compactMap { trashed.contains($0.url) ? nil : again[$0.url] ?? $0 }))
         }
     }
 
@@ -295,28 +344,41 @@ struct ReviewView: View {
                 }
 
                 Section(L("Left behind in your Library")) {
-                    if model.leftovers.isEmpty {
+                    if model.userLeftovers.isEmpty {
                         Text(L("Nothing. This app kept its files to itself."))
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(model.leftovers) { item in
-                        Toggle(isOn: binding(for: item)) {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(abbreviatedPath(item.url) + (item.isGroup ? " · " + L("%d files", item.files.count) : ""))
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                    Text(item.category.title)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Text(formattedBytes(item.size ?? 0))
+                    if model.userLeftovers.contains(where: \.isProtected) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Label {
+                                Text(L("macOS protects the data other apps keep in their containers. Moving it needs Full Disk Access for Scupper."))
+                                    .font(.callout)
+                            } icon: {
+                                Image(systemName: "lock")
                                     .foregroundStyle(.secondary)
-                                    .monospacedDigit()
+                            }
+                            Spacer()
+                            Button(L("Open Privacy Settings…")) {
+                                NSWorkspace.shared.open(Remover.fullDiskAccessSettings)
                             }
                         }
-                        .toggleStyle(.checkbox)
+                    }
+                    ForEach(model.userLeftovers) { item in
+                        row(for: item)
+                    }
+                }
+
+                if !model.systemLeftovers.isEmpty {
+                    Section {
+                        ForEach(model.systemLeftovers) { item in
+                            row(for: item)
+                        }
+                    } header: {
+                        Text(L("Left behind in the system Library"))
+                    } footer: {
+                        Text(L("Moving these asks for an administrator password."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -351,6 +413,40 @@ struct ReviewView: View {
         let count = model.selectedCount
         let items = count == 1 ? L("1 item") : L("%d items", count)
         return "\(items) · \(formattedBytes(model.selectedBytes))"
+    }
+
+    private func row(for item: Leftover) -> some View {
+        Toggle(isOn: binding(for: item)) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(abbreviatedPath(item.url) + (item.isGroup ? " · " + L("%d files", item.files.count) : ""))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(caption(for: item))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer()
+                if item.isProtected {
+                    // Only what's outside Data could be counted.
+                    Label(L("Protected"), systemImage: "lock")
+                        .labelStyle(.titleAndIcon)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(formattedBytes(item.size ?? 0))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+        }
+        .toggleStyle(.checkbox)
+    }
+
+    private func caption(for item: Leftover) -> String {
+        guard !item.sharedWith.isEmpty else { return item.category.title }
+        let apps = ListFormatter.localizedString(byJoining: item.sharedWith)
+        return item.category.title + " · " + L("Also used by %@", apps)
     }
 
     private func binding(for item: Leftover) -> Binding<Bool> {
@@ -390,6 +486,30 @@ struct DoneView: View {
             }
             if !summary.failures.isEmpty {
                 Form {
+                    if summary.failures.contains(where: \.needsFullDiskAccess) {
+                        Section {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(L("macOS protects the data other apps keep in their containers. To move it, turn on Full Disk Access for Scupper, then try again."))
+                                Text(L("If Scupper is already turned on there, quit and reopen it first."))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            HStack {
+                                Button(L("Open Privacy Settings…")) {
+                                    NSWorkspace.shared.open(Remover.fullDiskAccessSettings)
+                                }
+                                Spacer()
+                                if model.isRetrying {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                                Button(L("Try Again")) {
+                                    model.retryProtected()
+                                }
+                                .disabled(model.isRetrying)
+                            }
+                        }
+                    }
                     Section(L("Couldn't be moved")) {
                         ForEach(summary.failures) { failure in
                             VStack(alignment: .leading, spacing: 2) {
@@ -404,7 +524,7 @@ struct DoneView: View {
                     }
                 }
                 .formStyle(.grouped)
-                .frame(maxHeight: 200)
+                .frame(maxHeight: summary.failures.contains(where: \.needsFullDiskAccess) ? 320 : 200)
             }
         }
     }

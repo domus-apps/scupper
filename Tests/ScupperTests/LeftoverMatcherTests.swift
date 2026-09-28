@@ -105,7 +105,7 @@ private let code = AppIdentity(bundleID: "com.microsoft.VSCode", names: ["Visual
     try write("Logs/AppAnalytics/com.jhaemin.sill.1C8B3E6A-1D2F-4E5A-9B7C-123456789ABC.json", bytes: 7)
     try write("Logs/AppAnalytics/com.jhaemin.coffer.2C8B3E6A-1D2F-4E5A-9B7C-123456789ABC.json", bytes: 7)
 
-    let found = LeftoverScanner.scan(identity: sill, library: library)
+    let found = LeftoverScanner.scan(identity: sill, library: library, systemLibrary: nil)
     // The temp folder is a symlink (/var → /private/var); compare resolved paths.
     let base = library.resolvingSymlinksInPath().path
     let paths = found.map { String($0.url.resolvingSymlinksInPath().path.dropFirst(base.count + 1)) }

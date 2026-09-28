@@ -4,6 +4,28 @@ All notable changes to Scupper are documented here. The release workflow publish
 
 Keep each bullet on a single line: release notes render line breaks literally (both on GitHub and in the update dialog), so wrapped lines would break mid-sentence.
 
+## 1.1.0
+
+### Added
+
+- Files left by the helpers and extensions inside an app are found too. Xcode's Instruments and Icon Composer containers are listed with Xcode.
+- Group containers with names unlike the app's are found too. Slack's BQR82RBBHL.slack is listed with Slack.
+- Background tasks that run from the app's folders are found under any name. Steam's steamclean is listed with Steam.
+- Files in the system Library are listed in their own section and move to the Trash after you enter an administrator password. Zoom's daemon and helper tool are listed with Zoom.
+- Items another installed app also uses show that app's name and stay unchecked. The iWork folder Pages shares with Keynote and Numbers stays unchecked.
+- Protected containers are marked in the list before anything moves.
+- When macOS protects another app's container, Scupper shows how to turn on Full Disk Access and can try again, so the container goes to the Trash too.
+
+### Changed
+
+- Removing an app also stops its background tasks and helpers, so nothing keeps running from the Trash.
+- Nothing is checked at first for apps that are part of macOS.
+
+### Fixed
+
+- Removing an app that had crash reports also moved the whole crash report folder to the Trash, including reports from other apps.
+- An item that couldn't be moved could appear twice in the list.
+
 ## 1.0.0
 
 The first release.

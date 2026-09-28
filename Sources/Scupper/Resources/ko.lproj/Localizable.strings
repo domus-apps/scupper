@@ -29,6 +29,11 @@
 "Choose Another…" = "다른 앱 선택…";
 "Move to Trash" = "휴지통으로 이동";
 "Still running. Quit it and try again." = "아직 실행 중입니다. 종료한 뒤 다시 시도하세요.";
+"Also used by %@" = "%@에서도 사용";
+"Protected" = "보호됨";
+"macOS protects the data other apps keep in their containers. Moving it needs Full Disk Access for Scupper." = "macOS는 다른 앱이 컨테이너에 둔 데이터를 보호합니다. 옮기려면 Scupper에 전체 디스크 접근 권한이 필요합니다.";
+"Left behind in the system Library" = "시스템 라이브러리에 남은 파일";
+"Moving these asks for an administrator password." = "옮길 때 관리자 암호를 묻습니다.";
 "Another copy is installed at %@. It shares these files, so none are checked." = "%@에 같은 앱이 하나 더 설치되어 있습니다. 이 파일들을 함께 쓰므로 아무것도 선택하지 않았습니다.";
 
 /* 완료 */
@@ -37,6 +42,8 @@
 "%@, %@. Empty the Trash when you're ready." = "%@, %@. 준비되면 휴지통을 비우세요.";
 "Done" = "완료";
 "Couldn't be moved" = "옮기지 못한 항목";
+"Not moved." = "옮기지 않았습니다.";
+"Not moved. Moving it needs an administrator password." = "옮기지 않았습니다. 옮기려면 관리자 암호가 필요합니다.";
 
 /* 위치 */
 "Application Support" = "응용 프로그램 지원";
@@ -54,4 +61,12 @@
 "Background Downloads" = "백그라운드 다운로드";
 "Analytics Logs" = "분석 로그";
 "Recent Documents List" = "최근 문서 목록";
+"Launch Daemon" = "시스템 실행 항목";
+"Privileged Helper" = "권한 있는 도우미";
 "%d files" = "파일 %d개";
+
+/* Full Disk Access, for other apps' containers */
+"macOS protects the data other apps keep in their containers. To move it, turn on Full Disk Access for Scupper, then try again." = "macOS는 다른 앱이 컨테이너에 둔 데이터를 보호합니다. 이 항목을 옮기려면 Scupper에 전체 디스크 접근 권한을 켠 뒤 다시 시도하세요.";
+"If Scupper is already turned on there, quit and reopen it first." = "이미 켜 두었다면 Scupper를 종료했다가 다시 연 뒤 시도하세요.";
+"Open Privacy Settings…" = "개인정보 보호 설정 열기…";
+"Try Again" = "다시 시도";
