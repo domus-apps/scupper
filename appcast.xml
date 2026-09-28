@@ -37,5 +37,79 @@
         sparkle:edSignature="2XveHDfI+swteQlWMICkZnpBTIVk+4lZKb49JuGY5PPCls0cRkFCHDraNAI0gb7Av6JjSzKHUvvZW15nSNodBw==" length="3289326"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>Scupper v1.1.0</title>
+      <link>https://github.com/domus-apps/scupper/releases/tag/v1.1.0</link>
+      <pubDate>Mon, 28 Sep 2026 05:14:48 +0000</pubDate>
+      <description xml:lang="en"><![CDATA[
+<h2>1.1.0</h2>
+<h3>Added</h3>
+<ul>
+<li>Files left by the helpers and extensions inside an app are found too. Xcode's Instruments and Icon Composer containers are listed with Xcode.</li>
+<li>Group containers with names unlike the app's are found too. Slack's BQR82RBBHL.slack is listed with Slack.</li>
+<li>Background tasks that run from the app's folders are found under any name. Steam's steamclean is listed with Steam.</li>
+<li>Files in the system Library are listed in their own section and move to the Trash after you enter an administrator password. Zoom's daemon and helper tool are listed with Zoom.</li>
+<li>Items another installed app also uses show that app's name and stay unchecked. The iWork folder Pages shares with Keynote and Numbers stays unchecked.</li>
+<li>Protected containers are marked in the list before anything moves.</li>
+<li>When macOS protects another app's container, Scupper shows how to turn on Full Disk Access and can try again, so the container goes to the Trash too.</li>
+</ul>
+<h3>Changed</h3>
+<ul>
+<li>Removing an app also stops its background tasks and helpers, so nothing keeps running from the Trash.</li>
+<li>Nothing is checked at first for apps that are part of macOS.</li>
+</ul>
+<h3>Fixed</h3>
+<ul>
+<li>Removing an app that had crash reports also moved the whole crash report folder to the Trash, including reports from other apps.</li>
+<li>An item that couldn't be moved could appear twice in the list.</li>
+</ul>
+<h2>1.0.0</h2>
+<p>The first release.</p>
+<ul>
+<li>Drop an app onto the window or the Dock icon to see every file it left in your Library, from settings and caches to logs and saved state.</li>
+<li>Every item shows its size and can be unchecked before anything moves.</li>
+<li>One click moves the app and its leftovers to the Trash, so nothing is gone for good until you empty it.</li>
+<li>A running app is asked to quit first.</li>
+<li>Speaks Korean, following the macOS language.</li>
+</ul>      ]]></description>
+      <description xml:lang="ko"><![CDATA[
+<h2>1.1.0</h2>
+<h3>추가</h3>
+<ul>
+<li>앱 안에 든 도우미와 확장 프로그램이 남긴 파일도 찾습니다. Xcode를 지울 때 Instruments와 Icon Composer의 컨테이너도 함께 나옵니다.</li>
+<li>이름이 앱과 달라도 그 앱의 그룹 컨테이너를 찾습니다. Slack을 지울 때 BQR82RBBHL.slack도 함께 나옵니다.</li>
+<li>앱 폴더에서 실행되는 백그라운드 작업은 이름이 달라도 찾습니다. Steam을 지울 때 steamclean도 함께 나옵니다.</li>
+<li>시스템 라이브러리에 남은 파일은 따로 모아 보여 주며, 관리자 암호를 입력하여 휴지통으로 옮길 수 있습니다. Zoom을 지울 때 데몬과 도우미 도구도 함께 나옵니다.</li>
+<li>설치된 다른 앱도 쓰는 항목에는 그 앱 이름이 표시되고 체크되지 않은 채로 둡니다. Pages가 Keynote, Numbers와 함께 쓰는 iWork 폴더는 체크되지 않습니다.</li>
+<li>보호된 컨테이너는 옮기기 전에 목록에서 미리 표시됩니다.</li>
+<li>다른 앱의 컨테이너를 macOS가 보호하고 있으면 전체 디스크 접근 권한을 켜는 방법을 안내하고, 다시 시도해 컨테이너까지 휴지통으로 옮길 수 있습니다.</li>
+</ul>
+<h3>변경</h3>
+<ul>
+<li>앱을 지우면 그 앱의 백그라운드 작업과 도우미도 멈춰, 휴지통에서 계속 실행되는 일이 없습니다.</li>
+<li>macOS에 포함된 앱은 처음에 아무것도 체크하지 않습니다.</li>
+</ul>
+<h3>수정</h3>
+<ul>
+<li>충돌 보고서가 있는 앱을 지우면 다른 앱의 보고서까지 담긴 충돌 보고서 폴더가 통째로 휴지통으로 가던 문제를 고쳤습니다.</li>
+<li>옮기지 못한 항목이 목록에 두 번 나오던 문제를 고쳤습니다.</li>
+</ul>
+<h2>1.0.0</h2>
+<p>첫 릴리스입니다.</p>
+<ul>
+<li>앱을 창이나 Dock 아이콘에 놓으면 설정, 캐시, 로그, 저장된 상태까지 라이브러리에 남긴 파일을 모두 보여 줍니다.</li>
+<li>항목마다 크기가 표시되고, 옮기기 전에 체크를 해제할 수 있습니다.</li>
+<li>한 번의 클릭으로 앱과 남은 파일을 휴지통으로 옮겨, 휴지통을 비우기 전까지는 되돌릴 수 있습니다.</li>
+<li>실행 중인 앱은 먼저 종료를 요청합니다.</li>
+<li>macOS 언어가 한국어이면 한국어로 표시됩니다.</li>
+</ul>      ]]></description>
+      <sparkle:version>2</sparkle:version>
+      <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <enclosure
+        url="https://github.com/domus-apps/scupper/releases/download/v1.1.0/Scupper.zip"
+        sparkle:edSignature="Kp4Rat211OFc7/Qc1Xi7rTFsnB1d2ohT/pjFQYmioedDofkSqBLMeuC/5CY3a+dORDizAzuqMHbFwWFmxTZyAA==" length="3347957"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
