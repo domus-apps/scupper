@@ -163,8 +163,8 @@ enum LeftoverMatcher {
             guard let stem = stripping(".json", from: name) else { return false }
             return identifierMatches(stem, bundleID)
         case .recentDocuments:
-            // "com.x.app.sfl3" (sfl2 on older systems)
-            let stem = stripping(".sfl3", from: name) ?? stripping(".sfl2", from: name) ?? stripping(".sfl", from: name)
+            // "com.x.app.sfl4" (sfl3, sfl2 on older systems)
+            let stem = recentDocumentsExtensions.lazy.compactMap { stripping("." + $0, from: name) }.first
             guard let stem else { return false }
             return identifierMatches(stem, bundleID)
         case .groupContainers:
@@ -217,11 +217,24 @@ enum LeftoverMatcher {
         return bare == bundleID || bare.hasPrefix(bundleID + ".")
     }
 
-    /// The plain app name as a folder name, case-insensitively. Names
-    /// shorter than three characters are too easy to collide with.
+    /* The plain app name as a folder name, case-insensitively, and also
+       with spaces and punctuation dropped: Porting Kit keeps
+       ~/Library/Application Support/portingkit. Names shorter than three
+       characters are too easy to collide with. */
     static func nameMatches(_ text: String, _ identity: AppIdentity) -> Bool {
-        identity.names.contains { $0.count >= 3 && $0.lowercased() == text }
+        let squeezed = squeezed(text)
+        return identity.names.contains {
+            $0.count >= 3 && ($0.lowercased() == text || (squeezed.count >= 3 && Self.squeezed($0) == squeezed))
+        }
     }
+
+    /// Letters and digits only, lowercased.
+    static func squeezed(_ text: String) -> String {
+        String(text.lowercased().filter { $0.isLetter || $0.isNumber })
+    }
+
+    /// Newest first: sfl4 on macOS 26 and later.
+    static let recentDocumentsExtensions = ["sfl4", "sfl3", "sfl2", "sfl"]
 
     /* A launchd job belongs to the app when it runs something inside the
        app or inside a folder already found to be the app's — Steam's
@@ -303,6 +316,23 @@ enum LeftoverScanner {
             guard let root = root(of: category) else { continue }
             for relative in category.directories {
                 let directory = root.appendingPathComponent(relative)
+                /* The recent documents folder can't be listed without Full
+                   Disk Access, but a file in it can still be looked up by
+                   name — nor written to, so what's found is protected. */
+                if category == .recentDocuments {
+                    let listable = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) != nil
+                    for id in identity.bundleIDs {
+                        for ext in LeftoverMatcher.recentDocumentsExtensions {
+                            let url = directory.appendingPathComponent(id + "." + ext)
+                            guard FileManager.default.fileExists(atPath: url.path),
+                                !found.contains(where: { $0.url == url })
+                            else { continue }
+                            found.append(Leftover(url: url, category: category, size: size(of: url),
+                                                  isProtected: !listable))
+                        }
+                    }
+                    continue
+                }
                 guard let entries = try? FileManager.default.contentsOfDirectory(
                     at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
                 else { continue }

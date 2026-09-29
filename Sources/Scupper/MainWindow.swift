@@ -351,7 +351,7 @@ struct ReviewView: View {
                     if model.userLeftovers.contains(where: \.isProtected) {
                         HStack(alignment: .firstTextBaseline) {
                             Label {
-                                Text(L("macOS protects the data other apps keep in their containers. Moving it needs Full Disk Access for Scupper."))
+                                Text(L("macOS protects some of these items. Moving them needs Full Disk Access for Scupper."))
                                     .font(.callout)
                             } icon: {
                                 Image(systemName: "lock")
@@ -489,7 +489,7 @@ struct DoneView: View {
                     if summary.failures.contains(where: \.needsFullDiskAccess) {
                         Section {
                             VStack(alignment: .leading, spacing: 6) {
-                                Text(L("macOS protects the data other apps keep in their containers. To move it, turn on Full Disk Access for Scupper, then try again."))
+                                Text(L("macOS protects some of these items. To move them, turn on Full Disk Access for Scupper, then try again."))
                                 Text(L("If Scupper is already turned on there, quit and reopen it first."))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)

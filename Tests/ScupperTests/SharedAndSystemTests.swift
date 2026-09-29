@@ -255,3 +255,43 @@ private func writePlist(_ url: URL, _ plist: [String: Any]) throws {
     let marked = LeftoverScanner.markingShared([group, own], identity: finalCut, others: others)
     #expect(marked.map(\.sharedWith) == [["Motion"], []])
 }
+
+@Test func namesMatchWithoutTheirSpacesAndPunctuation() {
+    let portingKit = AppIdentity(bundleID: "com.paulthetall.portingkit", names: ["Porting Kit"])
+    #expect(LeftoverMatcher.matches("portingkit", in: .applicationSupport, identity: portingKit))
+    #expect(LeftoverMatcher.matches("Porting-Kit", in: .caches, identity: portingKit))
+    #expect(LeftoverMatcher.matches("porting_kit", in: .systemApplicationSupport, identity: portingKit))
+    #expect(!LeftoverMatcher.matches("Porting", in: .applicationSupport, identity: portingKit))
+    #expect(!LeftoverMatcher.matches("portingkit2", in: .applicationSupport, identity: portingKit))
+    // Still only where apps traditionally use their names.
+    #expect(!LeftoverMatcher.matches("portingkit", in: .containers, identity: portingKit))
+    // Squeezing can't make a short name long enough to count.
+    let ab = AppIdentity(bundleID: "com.x.ab", names: ["A B"])
+    #expect(!LeftoverMatcher.matches("ab", in: .applicationSupport, identity: ab))
+}
+
+@Test func recentDocumentListsAreFoundByNameInEveryFormat() throws {
+    #expect(LeftoverMatcher.matches("com.paulthetall.portingkit.sfl4",
+                                    in: .recentDocuments, identity: AppIdentity(bundleID: "com.paulthetall.portingkit", names: [])))
+    let root = temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let library = root.appendingPathComponent("Library")
+    let folder = library.appendingPathComponent(LeftoverCategory.recentDocuments.directories[0])
+    try write(folder.appendingPathComponent("com.paulthetall.portingkit.sfl4"))
+    try write(folder.appendingPathComponent("com.paulthetall.portingkit.helper.sfl4"))  // not the app's own list
+    let found = LeftoverScanner.scan(identity: AppIdentity(bundleID: "com.paulthetall.portingkit", names: ["Porting Kit"]),
+                                     library: library, systemLibrary: nil)
+    #expect(found.map(\.url.lastPathComponent) == ["com.paulthetall.portingkit.sfl4"])
+    // The folder could be listed here, so nothing needed Full Disk Access.
+    #expect(found.map(\.isProtected) == [false])
+    let denied = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError)
+    #expect(Remover.isContainerProtection(
+        denied, at: LeftoverScanner.userLibrary.appendingPathComponent(LeftoverCategory.recentDocuments.directories[0] + "/x.sfl4")))
+}
+
+@Test func copiesInATrashOrOnADiskImageDontCount() {
+    #expect(Remover.isInTrash(URL(fileURLWithPath: "/Users/x/.Trash/Porting Kit.app")))
+    #expect(Remover.isInTrash(URL(fileURLWithPath: "/Volumes/Disk/.Trashes/501/Porting Kit.app")))
+    #expect(!Remover.isInTrash(URL(fileURLWithPath: "/Applications/Porting Kit.app")))
+    #expect(!Remover.isOnReadOnlyVolume(FileManager.default.temporaryDirectory))
+}

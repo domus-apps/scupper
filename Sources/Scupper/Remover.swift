@@ -97,9 +97,19 @@ enum Remover {
         NSWorkspace.shared.urlsForApplications(withBundleIdentifier: app.bundleID)
             .map { $0.standardizedFileURL.resolvingSymlinksInPath() }
             .filter {
-                $0 != app.url && !$0.path.contains("/AppTranslocation/")
-                    && FileManager.default.fileExists(atPath: $0.path)
+                $0 != app.url && !$0.path.contains("/AppTranslocation/") && !isInTrash($0)
+                    && !isOnReadOnlyVolume($0) && FileManager.default.fileExists(atPath: $0.path)
             }
+    }
+
+    /* Not installed copies: one in a Trash, and one on a read-only
+       volume — the disk image the app came on, still mounted. */
+    static func isInTrash(_ url: URL) -> Bool {
+        url.pathComponents.contains(".Trash") || url.pathComponents.contains(".Trashes")
+    }
+
+    static func isOnReadOnlyVolume(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.volumeIsReadOnlyKey]).volumeIsReadOnly) == true
     }
 
     /* What one removal moves: every selected row's files (a grouped row is
@@ -238,14 +248,15 @@ enum Remover {
     /* ~/Library/Containers and ~/Library/Group Containers belong to the
        apps that made them, and macOS refuses to move them for anyone else
        (a write-permission error, even once the owner is gone) unless the
-       mover has Full Disk Access. */
+       mover has Full Disk Access. The recent documents lists are guarded
+       the same way. */
     static func isContainerProtection(_ error: Error, at url: URL) -> Bool {
         let error = error as NSError
         guard error.domain == NSCocoaErrorDomain, error.code == NSFileWriteNoPermissionError else {
             return false
         }
         let library = LeftoverScanner.userLibrary.path
-        return ["Containers", "Group Containers"].contains {
+        return ["Containers", "Group Containers", LeftoverCategory.recentDocuments.directories[0]].contains {
             url.path.hasPrefix(library + "/" + $0 + "/")
         }
     }

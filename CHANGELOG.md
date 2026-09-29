@@ -4,6 +4,14 @@ All notable changes to Scupper are documented here. The release workflow publish
 
 Keep each bullet on a single line: release notes render line breaks literally (both on GitHub and in the update dialog), so wrapped lines would break mid-sentence.
 
+## 1.1.1
+
+### Fixed
+
+- A mounted disk image of the app counted as another installed copy, so nothing was checked.
+- Folders named after the app without its spaces were missed.
+- The recent documents list was missed on macOS 26 and later.
+
 ## 1.1.0
 
 ### Added
