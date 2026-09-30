@@ -199,5 +199,99 @@
         sparkle:edSignature="J+fU9MqAy7/Ulf1AkLsPgyxu+2ZwtpocOI9i43KUMQSB7yPEQWhYcM7jkqrbC+PCl+dsQHRrL7oIWbQwdzRXBA==" length="3349779"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>Scupper v1.2.0</title>
+      <link>https://github.com/domus-apps/scupper/releases/tag/v1.2.0</link>
+      <pubDate>Wed, 30 Sep 2026 14:25:03 +0000</pubDate>
+      <description xml:lang="en"><![CDATA[
+<h2>1.2.0</h2>
+<h3>Added</h3>
+<ul>
+<li>Background services signed by the app's developer are found even when their names don't match the app. OpenVPN Connect's two daemons are listed with OpenVPN Connect.</li>
+</ul>
+<h3>Fixed</h3>
+<ul>
+<li>Removing an app could check a folder that belongs to another app with a similar name.</li>
+<li>Items could show the app being removed as another app that also uses them.</li>
+<li>An app could be reported as having another copy installed at its own location.</li>
+<li>A copy an app's updater had downloaded counted as another installed copy.</li>
+</ul>
+<h2>1.1.1</h2>
+<h3>Fixed</h3>
+<ul>
+<li>A mounted disk image of the app counted as another installed copy, so nothing was checked.</li>
+<li>Folders named after the app without its spaces were missed.</li>
+<li>The recent documents list was missed on macOS 26 and later.</li>
+</ul>
+<h2>1.1.0</h2>
+<h3>Added</h3>
+<ul>
+<li>Files left by the helpers and extensions inside an app are found too. Xcode's Instruments and Icon Composer containers are listed with Xcode.</li>
+<li>Group containers with names unlike the app's are found too. Slack's BQR82RBBHL.slack is listed with Slack.</li>
+<li>Background tasks that run from the app's folders are found under any name. Steam's steamclean is listed with Steam.</li>
+<li>Files in the system Library are listed in their own section and move to the Trash after you enter an administrator password. Zoom's daemon and helper tool are listed with Zoom.</li>
+<li>Items another installed app also uses show that app's name and stay unchecked. The iWork folder Pages shares with Keynote and Numbers stays unchecked.</li>
+<li>Protected containers are marked in the list before anything moves.</li>
+<li>When macOS protects another app's container, Scupper shows how to turn on Full Disk Access and can try again, so the container goes to the Trash too.</li>
+</ul>
+<h3>Changed</h3>
+<ul>
+<li>Removing an app also stops its background tasks and helpers, so nothing keeps running from the Trash.</li>
+<li>Nothing is checked at first for apps that are part of macOS.</li>
+</ul>
+<h3>Fixed</h3>
+<ul>
+<li>Removing an app that had crash reports also moved the whole crash report folder to the Trash, including reports from other apps.</li>
+<li>An item that couldn't be moved could appear twice in the list.</li>
+</ul>      ]]></description>
+      <description xml:lang="ko"><![CDATA[
+<h2>1.2.0</h2>
+<h3>추가</h3>
+<ul>
+<li>앱 개발자가 서명한 백그라운드 서비스는 이름이 앱과 달라도 찾습니다. OpenVPN Connect를 지울 때 데몬 두 개도 함께 나옵니다.</li>
+</ul>
+<h3>수정</h3>
+<ul>
+<li>앱을 지울 때 이름이 비슷한 다른 앱의 폴더까지 체크될 수 있던 문제를 고쳤습니다.</li>
+<li>지우려는 앱 자신이 그 항목을 함께 쓰는 다른 앱으로 표시될 수 있던 문제를 고쳤습니다.</li>
+<li>앱이 있는 바로 그 위치에 같은 앱이 하나 더 설치되어 있다고 표시될 수 있던 문제를 고쳤습니다.</li>
+<li>앱의 업데이트 도구가 내려받아 둔 복사본을 다른 설치본으로 여기던 문제를 고쳤습니다.</li>
+</ul>
+<h2>1.1.1</h2>
+<h3>수정</h3>
+<ul>
+<li>앱의 디스크 이미지가 마운트되어 있으면 다른 설치본으로 여겨 아무것도 체크하지 않던 문제를 고쳤습니다.</li>
+<li>앱 이름에서 띄어쓰기를 뺀 이름의 폴더를 찾지 못하던 문제를 고쳤습니다.</li>
+<li>macOS 26 이상에서 최근 문서 목록을 찾지 못하던 문제를 고쳤습니다.</li>
+</ul>
+<h2>1.1.0</h2>
+<h3>추가</h3>
+<ul>
+<li>앱 안에 든 도우미와 확장 프로그램이 남긴 파일도 찾습니다. Xcode를 지울 때 Instruments와 Icon Composer의 컨테이너도 함께 나옵니다.</li>
+<li>이름이 앱과 달라도 그 앱의 그룹 컨테이너를 찾습니다. Slack을 지울 때 BQR82RBBHL.slack도 함께 나옵니다.</li>
+<li>앱 폴더에서 실행되는 백그라운드 작업은 이름이 달라도 찾습니다. Steam을 지울 때 steamclean도 함께 나옵니다.</li>
+<li>시스템 라이브러리에 남은 파일은 따로 모아 보여 주며, 관리자 암호를 입력하여 휴지통으로 옮길 수 있습니다. Zoom을 지울 때 데몬과 도우미 도구도 함께 나옵니다.</li>
+<li>설치된 다른 앱도 쓰는 항목에는 그 앱 이름이 표시되고 체크되지 않은 채로 둡니다. Pages가 Keynote, Numbers와 함께 쓰는 iWork 폴더는 체크되지 않습니다.</li>
+<li>보호된 컨테이너는 옮기기 전에 목록에서 미리 표시됩니다.</li>
+<li>다른 앱의 컨테이너를 macOS가 보호하고 있으면 전체 디스크 접근 권한을 켜는 방법을 안내하고, 다시 시도해 컨테이너까지 휴지통으로 옮길 수 있습니다.</li>
+</ul>
+<h3>변경</h3>
+<ul>
+<li>앱을 지우면 그 앱의 백그라운드 작업과 도우미도 멈춰, 휴지통에서 계속 실행되는 일이 없습니다.</li>
+<li>macOS에 포함된 앱은 처음에 아무것도 체크하지 않습니다.</li>
+</ul>
+<h3>수정</h3>
+<ul>
+<li>충돌 보고서가 있는 앱을 지우면 다른 앱의 보고서까지 담긴 충돌 보고서 폴더가 통째로 휴지통으로 가던 문제를 고쳤습니다.</li>
+<li>옮기지 못한 항목이 목록에 두 번 나오던 문제를 고쳤습니다.</li>
+</ul>      ]]></description>
+      <sparkle:version>5</sparkle:version>
+      <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <enclosure
+        url="https://github.com/domus-apps/scupper/releases/download/v1.2.0/Scupper.zip"
+        sparkle:edSignature="SUgMaa0N8OJi7Ej5y0pu2ILiFZ2tShNa+HtP1jv2h7WNCnXs3/RSr3jrY1WrGFxfoOmiWZbgyC4sgBVF8adDBQ==" length="3357009"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
