@@ -97,13 +97,21 @@ enum Remover {
         NSWorkspace.shared.urlsForApplications(withBundleIdentifier: app.bundleID)
             .map { $0.standardizedFileURL.resolvingSymlinksInPath() }
             .filter {
-                $0 != app.url && !$0.path.contains("/AppTranslocation/") && !isInTrash($0)
-                    && !isOnReadOnlyVolume($0) && FileManager.default.fileExists(atPath: $0.path)
+                $0.path != app.url.path && !$0.path.contains("/AppTranslocation/") && !isInTrash($0)
+                    && !isInLibrary($0) && !isOnReadOnlyVolume($0)
+                    && FileManager.default.fileExists(atPath: $0.path)
             }
     }
 
-    /* Not installed copies: one in a Trash, and one on a read-only
-       volume — the disk image the app came on, still mounted. */
+    /* Not installed copies: one in a Trash, one an updater staged inside
+       a Library folder (Microsoft's keeps the next Edge under
+       ~/Library/Application Support/Microsoft/EdgeUpdater), and one on a
+       read-only volume — the disk image the app came on, still mounted. */
+    static func isInLibrary(_ url: URL) -> Bool {
+        url.path.hasPrefix(LeftoverScanner.userLibrary.path + "/")
+            || url.path.hasPrefix(LeftoverScanner.systemLibrary.path + "/")
+    }
+
     static func isInTrash(_ url: URL) -> Bool {
         url.pathComponents.contains(".Trash") || url.pathComponents.contains(".Trashes")
     }

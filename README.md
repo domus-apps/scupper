@@ -49,8 +49,12 @@ quit before it moves.
 ./Scripts/dev.sh                          # rebuild-and-relaunch loop
 ./Scripts/dev.sh --app /Applications/X.app  # open straight into a review
 ./Scripts/test.sh                         # unit tests
+./Scripts/audit.sh                        # what changed across every installed app
+./Scripts/audit.sh --accept               # keep this scan as the baseline
 ./Scripts/bundle.sh                       # assemble build/Scupper.app
 ```
+
+After changing a matching rule, `audit.sh` scans every installed app (read-only) and diffs what Scupper would offer, with why each item matched, against the last accepted scan. The scans list your own files, so they stay in `audit/`, which git ignores.
 
 Requires macOS 26 or later.
 

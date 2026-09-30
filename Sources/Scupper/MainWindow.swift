@@ -65,27 +65,25 @@ final class ScupperModel: ObservableObject {
         phase = .scanning
         let identity = inspected.identity
         scanTask = Task { [weak self] in
-            async let claims = Task.detached(priority: .userInitiated) {
-                InstalledApps.claims(excluding: inspected.url)
-            }.value
-            async let scan = Task.detached(priority: .userInitiated) {
-                LeftoverScanner.scan(identity: identity)
-            }.value
+            /* The other apps first: the scan needs them to tell what they
+               share, which for a developer's daemons depends on reading
+               signatures as the scan goes (the same path Scripts/audit.sh
+               checks). The app's own size is measured meanwhile. */
             async let measured = Task.detached(priority: .userInitiated) {
                 LeftoverScanner.size(of: inspected.url)
             }.value
-            let others = await claims
-            let found = LeftoverScanner.markingShared(await scan, identity: identity, others: others)
+            let others = await Task.detached(priority: .userInitiated) {
+                InstalledApps.claims(excluding: inspected.url)
+            }.value
+            let found = await Task.detached(priority: .userInitiated) {
+                LeftoverScanner.scan(identity: identity, others: others)
+            }.value
             let size = await measured
             guard let self, !Task.isCancelled, self.app == inspected else { return }
             self.others = others
             self.leftovers = found
-            /* Shared with another copy, or part of macOS (whose files
-               stay in use as long as the system does): nothing checked
-               until the user says so. Otherwise everything but what
-               other apps use too. */
-            self.selection = self.otherCopies.isEmpty && !inspected.isSystem
-                ? Set(found.filter(\.sharedWith.isEmpty).map(\.url)) : []
+            self.selection = LeftoverScanner.initialSelection(
+                found, isSystemApp: inspected.isSystem, hasOtherCopies: !self.otherCopies.isEmpty)
             self.appSize = size
             self.phase = .review
         }

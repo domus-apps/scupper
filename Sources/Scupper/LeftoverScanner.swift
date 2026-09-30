@@ -88,6 +88,27 @@ enum LeftoverCategory: Int, CaseIterable, Sendable {
     }
 }
 
+/// Why an item was taken to be the app's. Kept with every item so a
+/// change to the rules can be reviewed item by item (Scripts/audit.sh).
+enum Evidence: String, Sendable {
+    /// Named for the app's bundle identifier.
+    case identifier
+    /// Named for a helper or extension inside the app.
+    case helper
+    /// An app group in the app's code signature.
+    case appGroup
+    /// The app's plain name, where apps traditionally use it.
+    case name
+    /// A launch job that runs something inside the app or its folders.
+    case program
+    /// A launch job that names the app among its associated bundles.
+    case associated
+    /// The helper tool a matched daemon runs.
+    case daemonTool
+    /// A launch job or helper tool signed by the app's developer.
+    case developer
+}
+
 struct Leftover: Identifiable, Equatable, Sendable {
     /// The item shown: a file, a folder, or — for a grouped row — the
     /// folder the files sit in.
@@ -104,15 +125,17 @@ struct Leftover: Identifiable, Equatable, Sendable {
     /// the size counts only what's outside Data) or move without Full
     /// Disk Access.
     var isProtected = false
+    var evidence: Evidence
 
     init(url: URL, category: LeftoverCategory, size: Int64?, files: [URL]? = nil,
-         sharedWith: [String] = [], isProtected: Bool = false) {
+         sharedWith: [String] = [], isProtected: Bool = false, evidence: Evidence = .identifier) {
         self.url = url
         self.category = category
         self.size = size
         self.files = files ?? [url]
         self.sharedWith = sharedWith
         self.isProtected = isProtected
+        self.evidence = evidence
     }
 
     var isGroup: Bool { files.count != 1 || files.first != url }
@@ -125,24 +148,31 @@ enum LeftoverMatcher {
     /// Whether an entry named `entry` inside one of `category`'s folders
     /// belongs to the app.
     static func matches(_ entry: String, in category: LeftoverCategory, identity: AppIdentity) -> Bool {
+        evidence(for: entry, in: category, identity: identity) != nil
+    }
+
+    /// Why the entry is the app's, strongest reason first; nil when it isn't.
+    static func evidence(for entry: String, in category: LeftoverCategory, identity: AppIdentity) -> Evidence? {
         let name = entry.lowercased()
         if category == .groupContainers, identity.appGroups.contains(where: { $0.lowercased() == name }) {
-            return true
+            return .appGroup
         }
-        if identity.bundleIDs.contains(where: { matches(name, in: category, bundleID: $0.lowercased()) }) {
-            return true
+        if matches(name, in: category, bundleID: identity.bundleID.lowercased()) { return .identifier }
+        if identity.relatedBundleIDs.contains(where: { matches(name, in: category, bundleID: $0.lowercased()) }) {
+            return .helper
         }
         switch category {
         case .crashReports:
             // "Name-2026-09-07-120000.ips", "Name_2026-09-07-120000_host.crash"
-            return identity.names.contains { candidate in
+            let named = identity.names.contains { candidate in
                 let lower = candidate.lowercased()
                 return lower.count >= 3 && (name.hasPrefix(lower + "-") || name.hasPrefix(lower + "_"))
             }
+            return named ? .name : nil
         case .applicationSupport, .caches, .logs, .systemApplicationSupport, .systemCaches:
-            return nameMatches(name, identity)
+            return nameMatches(name, identity) ? .name : nil
         default:
-            return false
+            return nil
         }
     }
 
@@ -186,8 +216,10 @@ enum LeftoverMatcher {
        also Motion's, since Motion carries that helper; but uninstalling a
        com.x.app.dev build doesn't make com.x.app's app a co-owner of
        com.x.app.dev. A group container is shared with every app whose
-       signature names the group. Entries matched only by plain name are
-       not looked up. */
+       signature names the group. An entry matched only by the app's plain
+       name is shared with every other app known by that name: uninstalling
+       the Claude Code URL Handler (whose executable is "claude") leaves
+       Application Support/Claude to the Claude app. */
     static func sharedWith(_ entry: String, in category: LeftoverCategory, identity: AppIdentity,
                            others: OtherApps) -> [String] {
         let name = entry.lowercased()
@@ -201,6 +233,8 @@ enum LeftoverMatcher {
             where id.count >= specific && matches(name, in: category, bundleID: id) {
                 claimants += apps
             }
+        } else if evidence(for: entry, in: category, identity: identity) == .name, category != .crashReports {
+            claimants += others.names[squeezed(name)] ?? []
         }
         var seen = Set<String>()
         return claimants.sorted().filter { seen.insert($0).inserted }
@@ -242,12 +276,16 @@ enum LeftoverMatcher {
        Support/Steam — or names the app among its associated bundles (what
        System Settings' Login Items reads). */
     static func jobMatches(_ job: LaunchJob, identity: AppIdentity, folders: [String]) -> Bool {
+        jobEvidence(job, identity: identity, folders: folders) != nil
+    }
+
+    static func jobEvidence(_ job: LaunchJob, identity: AppIdentity, folders: [String]) -> Evidence? {
         if let program = job.program {
             let inside = (identity.appPath.map { [$0] } ?? []) + folders
-            if inside.contains(where: { program.hasPrefix($0 + "/") }) { return true }
+            if inside.contains(where: { program.hasPrefix($0 + "/") }) { return .program }
         }
         let ids = Set(identity.bundleIDs.map { $0.lowercased() })
-        return job.associatedBundleIDs.contains { ids.contains($0.lowercased()) }
+        return job.associatedBundleIDs.contains { ids.contains($0.lowercased()) } ? .associated : nil
     }
 
     private static func stripping(_ suffix: String, from text: String) -> String? {
@@ -296,14 +334,15 @@ enum LeftoverScanner {
     static func scan(identity: AppIdentity, others: OtherApps = .none, library: URL = userLibrary,
                      systemLibrary: URL? = systemLibrary) -> [Leftover] {
         var found: [Leftover] = []
-        func add(_ url: URL, _ category: LeftoverCategory) {
+        func add(_ url: URL, _ category: LeftoverCategory, _ evidence: Evidence, sharedWith: [String]? = nil) {
             guard !found.contains(where: { $0.url == url }) else { return }
             let measured = measure(url)
             found.append(Leftover(
                 url: url, category: category, size: measured.bytes,
-                sharedWith: LeftoverMatcher.sharedWith(
+                sharedWith: sharedWith ?? LeftoverMatcher.sharedWith(
                     url.lastPathComponent, in: category, identity: identity, others: others),
-                isProtected: measured.blocked && (category == .containers || category == .groupContainers)))
+                isProtected: measured.blocked && (category == .containers || category == .groupContainers),
+                evidence: evidence))
         }
         func root(of category: LeftoverCategory) -> URL? {
             category.isSystemWide ? systemLibrary : library
@@ -328,7 +367,8 @@ enum LeftoverScanner {
                                 !found.contains(where: { $0.url == url })
                             else { continue }
                             found.append(Leftover(url: url, category: category, size: size(of: url),
-                                                  isProtected: !listable))
+                                                  isProtected: !listable,
+                                                  evidence: id == identity.bundleID ? .identifier : .helper))
                         }
                     }
                     continue
@@ -337,36 +377,52 @@ enum LeftoverScanner {
                     at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
                 else { continue }
                 if category.groupsFiles {
-                    let matched = entries.filter {
-                        LeftoverMatcher.matches($0.lastPathComponent, in: category, identity: identity)
-                    }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+                    let matched = entries.compactMap { entry in
+                        LeftoverMatcher.evidence(for: entry.lastPathComponent, in: category, identity: identity)
+                            .map { (entry, $0) }
+                    }.sorted { $0.0.lastPathComponent < $1.0.lastPathComponent }
                     if !matched.isEmpty {
                         found.append(Leftover(
                             url: directory, category: category,
-                            size: matched.reduce(0) { $0 + size(of: $1) }, files: matched))
+                            size: matched.reduce(0) { $0 + size(of: $1.0) }, files: matched.map(\.0),
+                            evidence: matched.map(\.1).contains(.identifier) ? .identifier : matched[0].1))
                     }
                     continue
                 }
                 let folders = found.filter { !$0.isGroup && !$0.category.isLaunchJob }
                     .map { $0.url.resolvingSymlinksInPath().path }
                 for entry in entries {
-                    if LeftoverMatcher.matches(entry.lastPathComponent, in: category, identity: identity) {
-                        add(entry, category)
+                    if let evidence = LeftoverMatcher.evidence(
+                        for: entry.lastPathComponent, in: category, identity: identity)
+                    {
+                        add(entry, category, evidence)
                     } else if category.isLaunchJob, entry.pathExtension == "plist",
                         var job = LaunchJob(contentsOf: entry)
                     {
                         job.program = job.program.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }
-                        guard LeftoverMatcher.jobMatches(job, identity: identity, folders: folders) else { continue }
-                        add(entry, category)
+                        if let evidence = LeftoverMatcher.jobEvidence(job, identity: identity, folders: folders) {
+                            add(entry, category, evidence)
+                        } else if let program = job.program, let claimants = developerClaim(program, identity, others) {
+                            add(entry, category, .developer, sharedWith: claimants)
+                        } else {
+                            continue
+                        }
+                    } else if category == .privilegedHelpers,
+                        let claimants = developerClaim(entry.path, identity, others)
+                    {
+                        add(entry, category, .developer, sharedWith: claimants)
                     } else {
                         guard category.looksInsideVendorFolder,
                             entry.lastPathComponent.lowercased() == identity.vendor, isDirectory(entry),
                             let children = try? FileManager.default.contentsOfDirectory(
                                 at: entry, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
                         else { continue }
-                        for child in children
-                        where LeftoverMatcher.matches(child.lastPathComponent, in: category, identity: identity) {
-                            add(child, category)
+                        for child in children {
+                            if let evidence = LeftoverMatcher.evidence(
+                                for: child.lastPathComponent, in: category, identity: identity)
+                            {
+                                add(child, category, evidence)
+                            }
                         }
                         continue
                     }
@@ -377,7 +433,9 @@ enum LeftoverScanner {
                         program.hasPrefix(systemLibrary.appendingPathComponent("PrivilegedHelperTools").path + "/"),
                         FileManager.default.fileExists(atPath: program)
                     {
-                        add(URL(fileURLWithPath: program), .privilegedHelpers)
+                        // Shared exactly as its daemon is.
+                        add(URL(fileURLWithPath: program), .privilegedHelpers, .daemonTool,
+                            sharedWith: found.first { $0.url == entry }?.sharedWith)
                     }
                 }
             }
@@ -387,17 +445,31 @@ enum LeftoverScanner {
         }
     }
 
-    /// The scan's findings marked with who else uses them, for a scan
-    /// that ran before the other apps were known.
-    static func markingShared(_ found: [Leftover], identity: AppIdentity, others: OtherApps) -> [Leftover] {
-        found.map { item in
-            var item = item
-            if !item.isGroup {
-                item.sharedWith = LeftoverMatcher.sharedWith(
-                    item.url.lastPathComponent, in: item.category, identity: identity, others: others)
-            }
-            return item
-        }
+    /* A launch job's program, or a helper tool, that the app's developer
+       signed belongs to the app even when nothing names it — OpenVPN's
+       daemons say org.openvpn.client, not the app's org.openvpn.client.app.
+       Not when the program sits inside some other app, though: then it is
+       that app's (Google's updater runs from its own GoogleUpdater.app).
+       Other installed apps from the same developer share it. Returns those
+       apps (empty when none), or nil when the developer rule doesn't
+       apply. */
+    static func developerClaim(_ program: String, _ identity: AppIdentity, _ others: OtherApps) -> [String]? {
+        guard let team = identity.teamID else { return nil }
+        let insideApp = identity.appPath.map { program.hasPrefix($0 + "/") } ?? false
+        guard insideApp || !program.contains(".app/"),
+            FileManager.default.fileExists(atPath: program),
+            CodeSignature.teamID(of: URL(fileURLWithPath: program)) == team
+        else { return nil }
+        return (others.teams[team.lowercased()] ?? []).sorted()
+    }
+
+    /* What starts checked: everything the app alone uses — nothing at
+       all when another copy is installed (it shares every file) or the
+       app is part of macOS (whose files stay in use as long as the system
+       does). */
+    static func initialSelection(_ found: [Leftover], isSystemApp: Bool, hasOtherCopies: Bool) -> Set<URL> {
+        guard !isSystemApp, !hasOtherCopies else { return [] }
+        return Set(found.filter(\.sharedWith.isEmpty).map(\.url))
     }
 
     /* Quitting is when apps write: saved state, window positions, a last

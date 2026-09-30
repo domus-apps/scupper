@@ -247,15 +247,6 @@ private func writePlist(_ url: URL, _ plist: [String: Any]) throws {
     #expect(Remover.processes(runningFrom: root.appendingPathComponent("Helper")) == [])
 }
 
-@Test func sharingCanBeMarkedAfterTheScan() {
-    let group = Leftover(url: URL(fileURLWithPath: "/L/Group Containers/PTN9T2S29T.com.apple.videoProApps"),
-                         category: .groupContainers, size: 1)
-    let own = Leftover(url: URL(fileURLWithPath: "/L/Containers/com.apple.FinalCut"), category: .containers, size: 1)
-    let others = OtherApps(groups: ["ptn9t2s29t.com.apple.videoproapps": ["Motion"]])
-    let marked = LeftoverScanner.markingShared([group, own], identity: finalCut, others: others)
-    #expect(marked.map(\.sharedWith) == [["Motion"], []])
-}
-
 @Test func namesMatchWithoutTheirSpacesAndPunctuation() {
     let portingKit = AppIdentity(bundleID: "com.paulthetall.portingkit", names: ["Porting Kit"])
     #expect(LeftoverMatcher.matches("portingkit", in: .applicationSupport, identity: portingKit))
@@ -294,4 +285,53 @@ private func writePlist(_ url: URL, _ plist: [String: Any]) throws {
     #expect(Remover.isInTrash(URL(fileURLWithPath: "/Volumes/Disk/.Trashes/501/Porting Kit.app")))
     #expect(!Remover.isInTrash(URL(fileURLWithPath: "/Applications/Porting Kit.app")))
     #expect(!Remover.isOnReadOnlyVolume(FileManager.default.temporaryDirectory))
+}
+
+@Test func folderNamesAreSharedWithOtherAppsKnownByThem() {
+    // The URL handler's executable is "claude"; the Claude app is known by that name.
+    let handler = AppIdentity(bundleID: "com.anthropic.claude-code-url-handler",
+                              names: ["Claude Code URL Handler", "claude"])
+    let claude = AppIdentity(bundleID: "com.anthropic.claudefordesktop", names: ["Claude"])
+    let othersForHandler = OtherApps(names: ["claude": ["Claude"]])
+    #expect(LeftoverMatcher.sharedWith("Claude", in: .applicationSupport, identity: handler,
+                                       others: othersForHandler) == ["Claude"])
+    // The handler claims only the names it is known by, so Claude keeps its folder.
+    let othersForClaude = OtherApps(names: ["claudecodeurlhandler": ["Claude Code URL Handler"]])
+    #expect(LeftoverMatcher.sharedWith("Claude", in: .applicationSupport, identity: claude,
+                                       others: othersForClaude) == [])
+    // A folder named for the identifier isn't a name match.
+    #expect(LeftoverMatcher.sharedWith("com.anthropic.claudefordesktop", in: .caches, identity: claude,
+                                       others: OtherApps(names: ["comanthropicclaudefordesktop": ["X"]])) == [])
+}
+
+@Test func updaterStagedCopiesDontCount() {
+    #expect(Remover.isInLibrary(LeftoverScanner.userLibrary.appendingPathComponent(
+        "Application Support/Microsoft/EdgeUpdater/apps/msedge-stable/1.0/Microsoft Edge.app")))
+    #expect(Remover.isInLibrary(URL(fileURLWithPath: "/Library/Application Support/X/X.app")))
+    #expect(!Remover.isInLibrary(URL(fileURLWithPath: "/Applications/Microsoft Edge.app")))
+}
+
+@Test func theDeveloperRuleSkipsProgramsInsideOtherApps() throws {
+    let team = AppIdentity(bundleID: "com.google.Chrome", names: ["Google Chrome"],
+                           appPath: "/Applications/Google Chrome.app", teamID: "EQHXZ8M8AV")
+    // Google's updater runs from its own app: it is that app's, not Chrome's.
+    #expect(LeftoverScanner.developerClaim(
+        "/Users/x/Library/Application Support/Google/GoogleUpdater/Current/GoogleUpdater.app/Contents/MacOS/GoogleUpdater",
+        team, .none) == nil)
+    // Unsigned apps, and apps without a team, have no developer to go by.
+    var unsigned = team
+    unsigned.teamID = nil
+    #expect(LeftoverScanner.developerClaim("/bin/ls", unsigned, .none) == nil)
+    // A program signed by someone else (here, Apple) isn't claimed.
+    #expect(LeftoverScanner.developerClaim("/bin/ls", team, .none) == nil)
+}
+
+@Test func everyItemSaysWhyItMatched() {
+    let zoom = AppIdentity(bundleID: "us.zoom.xos", names: ["zoom.us"], relatedBundleIDs: ["us.zoom.updater"],
+                           appGroups: ["BJ4HAAB9B3.ZoomClient3rd"])
+    #expect(LeftoverMatcher.evidence(for: "us.zoom.xos", in: .caches, identity: zoom) == .identifier)
+    #expect(LeftoverMatcher.evidence(for: "us.zoom.updater.plist", in: .preferences, identity: zoom) == .helper)
+    #expect(LeftoverMatcher.evidence(for: "BJ4HAAB9B3.ZoomClient3rd", in: .groupContainers, identity: zoom) == .appGroup)
+    #expect(LeftoverMatcher.evidence(for: "zoom.us", in: .logs, identity: zoom) == .name)
+    #expect(LeftoverMatcher.evidence(for: "us.zoom.other", in: .caches, identity: zoom) == nil)
 }

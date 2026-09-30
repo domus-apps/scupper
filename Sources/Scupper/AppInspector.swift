@@ -18,6 +18,9 @@ struct AppIdentity: Equatable, Sendable {
     /// Where the bundle is, so a launch agent that runs something inside
     /// it can be recognized whatever it is named.
     var appPath: String? = nil
+    /// The developer team that signed the app; nil for Apple's own apps
+    /// and unsigned ones.
+    var teamID: String? = nil
 
     /// The app's identifier first, then its helpers'.
     var bundleIDs: [String] { [bundleID] + relatedBundleIDs }
@@ -40,12 +43,13 @@ struct InspectedApp: Equatable, Sendable {
     var names: [String]
     var relatedBundleIDs: [String] = []
     var appGroups: [String] = []
+    var teamID: String? = nil
 
     /// Apps under /System are protected by the OS and can't be moved.
     var isSystem: Bool { url.path.hasPrefix("/System/") }
     var identity: AppIdentity {
         AppIdentity(bundleID: bundleID, names: names, relatedBundleIDs: relatedBundleIDs,
-                    appGroups: appGroups, appPath: url.path)
+                    appGroups: appGroups, appPath: url.path, teamID: teamID)
     }
 }
 
@@ -57,20 +61,7 @@ enum AppInspector {
             let bundleID = bundle.bundleIdentifier, !bundleID.isEmpty
         else { return nil }
         let info = bundle.infoDictionary ?? [:]
-        let localized = bundle.localizedInfoDictionary ?? [:]
-        let fileName = url.deletingPathExtension().lastPathComponent
-        let displayName =
-            (localized["CFBundleDisplayName"] ?? info["CFBundleDisplayName"]
-                ?? localized["CFBundleName"] ?? info["CFBundleName"]) as? String ?? fileName
-
-        var names: [String] = []
-        for candidate in [displayName, fileName, info["CFBundleName"] as? String,
-                          info["CFBundleExecutable"] as? String] {
-            guard let candidate = candidate?.trimmingCharacters(in: .whitespaces),
-                !candidate.isEmpty, !names.contains(candidate)
-            else { continue }
-            names.append(candidate)
-        }
+        let (displayName, names) = names(of: bundle, at: url)
         let nested = nestedBundles(in: url)
         let vendor = vendorDomain(bundleID)
         var related: [String] = []
@@ -94,7 +85,29 @@ enum AppInspector {
         return InspectedApp(
             url: url, name: displayName, bundleID: bundleID,
             version: info["CFBundleShortVersionString"] as? String, names: names,
-            relatedBundleIDs: related, appGroups: groups)
+            relatedBundleIDs: related, appGroups: groups, teamID: CodeSignature.teamID(of: url))
+    }
+
+    /// The display name, and every name the app goes by — display name,
+    /// file name, CFBundleName, executable — deduplicated.
+    static func names(of bundle: Bundle, at url: URL, includingExecutable: Bool = true)
+        -> (display: String, all: [String])
+    {
+        let info = bundle.infoDictionary ?? [:]
+        let localized = bundle.localizedInfoDictionary ?? [:]
+        let fileName = url.deletingPathExtension().lastPathComponent
+        let displayName =
+            (localized["CFBundleDisplayName"] ?? info["CFBundleDisplayName"]
+                ?? localized["CFBundleName"] ?? info["CFBundleName"]) as? String ?? fileName
+        var names: [String] = []
+        for candidate in [displayName, fileName, info["CFBundleName"] as? String,
+                          includingExecutable ? info["CFBundleExecutable"] as? String : nil] {
+            guard let candidate = candidate?.trimmingCharacters(in: .whitespaces),
+                !candidate.isEmpty, !names.contains(candidate)
+            else { continue }
+            names.append(candidate)
+        }
+        return (displayName, names)
     }
 
     /* Where apps keep their extensions, helper apps, login items and XPC
@@ -136,16 +149,23 @@ enum AppInspector {
 enum CodeSignature {
     /// The com.apple.security.application-groups entitlement of a bundle.
     static func appGroups(of bundle: URL) -> [String] {
+        let entitlements = information(of: bundle)?[kSecCodeInfoEntitlementsDict as String] as? [String: Any]
+        return entitlements?["com.apple.security.application-groups"] as? [String] ?? []
+    }
+
+    /// The developer team that signed a bundle or an executable.
+    static func teamID(of code: URL) -> String? {
+        information(of: code)?[kSecCodeInfoTeamIdentifier as String] as? String
+    }
+
+    private static func information(of url: URL) -> [String: Any]? {
         var code: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(bundle as CFURL, [], &code) == errSecSuccess, let code
-        else { return [] }
+        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { return nil }
         var info: CFDictionary?
         guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
-                == errSecSuccess,
-            let signing = info as? [String: Any],
-            let entitlements = signing[kSecCodeInfoEntitlementsDict as String] as? [String: Any]
-        else { return [] }
-        return entitlements["com.apple.security.application-groups"] as? [String] ?? []
+                == errSecSuccess
+        else { return nil }
+        return info as? [String: Any]
     }
 }
 
@@ -155,6 +175,10 @@ enum CodeSignature {
 struct OtherApps: Equatable, Sendable {
     var identifiers: [String: [String]] = [:]
     var groups: [String: [String]] = [:]
+    /// Keyed by the name squeezed to letters and digits.
+    var names: [String: [String]] = [:]
+    /// Keyed by signing team.
+    var teams: [String: [String]] = [:]
 
     static let none = OtherApps()
 }
@@ -170,28 +194,55 @@ enum InstalledApps {
                           "/System/Applications/Utilities"]
         + [FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications").path]
 
-    static func claims(excluding app: URL) -> OtherApps {
-        let own = app.standardizedFileURL.resolvingSymlinksInPath()
+    /// One installed app, as far as sharing is concerned.
+    struct Entry: Sendable {
+        var url: URL
+        var name: String
+        var identifiers: [String]
+        var groups: [String]
+        var names: [String] = []
+        var teamID: String? = nil
+    }
+
+    static func catalog() -> [Entry] {
+        var entries: [Entry] = []
+        for folder in folders {
+            for name in (try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []
+            where name.hasSuffix(".app") {
+                let url = URL(fileURLWithPath: folder).appendingPathComponent(name)
+                    .standardizedFileURL.resolvingSymlinksInPath()
+                var entry = Entry(url: url, name: String(name.dropLast(4)), identifiers: [], groups: [])
+                /* The names it is known by, not its executable's: the Claude
+                   Code URL Handler runs "claude", but Application
+                   Support/Claude is the Claude app's alone. */
+                if let bundle = Bundle(url: url) {
+                    entry.names = AppInspector.names(of: bundle, at: url, includingExecutable: false).all
+                }
+                entry.teamID = CodeSignature.teamID(of: url)
+                for bundle in [url] + AppInspector.nestedBundles(in: url) {
+                    if let id = Bundle(url: bundle)?.bundleIdentifier, !id.isEmpty { entry.identifiers.append(id) }
+                    entry.groups += CodeSignature.appGroups(of: bundle)
+                }
+                entries.append(entry)
+            }
+        }
+        return entries
+    }
+
+    static func claims(excluding app: URL, in catalog: [Entry]? = nil) -> OtherApps {
+        // By path: a dropped folder's URL ends in a slash, a listed one doesn't.
+        let own = app.standardizedFileURL.resolvingSymlinksInPath().path
         var claims = OtherApps()
         func add(_ key: String, _ name: String, to table: inout [String: [String]]) {
             let key = key.lowercased()
             if !(table[key]?.contains(name) ?? false) { table[key, default: []].append(name) }
         }
-        for folder in folders {
-            for entry in (try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []
-            where entry.hasSuffix(".app") {
-                let url = URL(fileURLWithPath: folder).appendingPathComponent(entry)
-                    .standardizedFileURL.resolvingSymlinksInPath()
-                guard url != own else { continue }
-                let name = String(entry.dropLast(4))
-                for bundle in [url] + AppInspector.nestedBundles(in: url) {
-                    if let id = Bundle(url: bundle)?.bundleIdentifier, !id.isEmpty {
-                        add(id, name, to: &claims.identifiers)
-                    }
-                    for group in CodeSignature.appGroups(of: bundle) {
-                        add(group, name, to: &claims.groups)
-                    }
-                }
+        for entry in catalog ?? self.catalog() where entry.url.path != own {
+            for id in entry.identifiers { add(id, entry.name, to: &claims.identifiers) }
+            for group in entry.groups { add(group, entry.name, to: &claims.groups) }
+            if let team = entry.teamID { add(team, entry.name, to: &claims.teams) }
+            for name in entry.names where name.count >= 3 {
+                add(LeftoverMatcher.squeezed(name), entry.name, to: &claims.names)
             }
         }
         return claims

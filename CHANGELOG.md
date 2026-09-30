@@ -4,6 +4,19 @@ All notable changes to Scupper are documented here. The release workflow publish
 
 Keep each bullet on a single line: release notes render line breaks literally (both on GitHub and in the update dialog), so wrapped lines would break mid-sentence.
 
+## 1.2.0
+
+### Added
+
+- Background services signed by the app's developer are found even when their names don't match the app. OpenVPN Connect's two daemons are listed with OpenVPN Connect.
+
+### Fixed
+
+- Removing an app could check a folder that belongs to another app with a similar name.
+- Items could show the app being removed as another app that also uses them.
+- An app could be reported as having another copy installed at its own location.
+- A copy an app's updater had downloaded counted as another installed copy.
+
 ## 1.1.1
 
 ### Fixed
