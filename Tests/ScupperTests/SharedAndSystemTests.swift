@@ -125,6 +125,28 @@ private func writePlist(_ url: URL, _ plist: [String: Any]) throws {
     #expect(found.filter(\.category.isSystemWide).count == 4)
 }
 
+@Test func systemDiagnosticReportsAreOneSystemRow() throws {
+    let root = temporaryFolder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let library = root.appendingPathComponent("Library")
+    let system = root.appendingPathComponent("System Library")
+    let reports = system.appendingPathComponent("Logs/DiagnosticReports")
+    try write(reports.appendingPathComponent("Final Cut Pro_2026-10-06-121029_host.diag"))
+    try write(reports.appendingPathComponent("Final Cut Pro Helper (GPU)-2026-10-06-121029.ips"))
+    try write(reports.appendingPathComponent("Motion_2026-10-06-121029_host.diag"))
+    try write(reports.appendingPathComponent("Retired/Final Cut Pro_2026-10-01-000000_host.diag"))
+
+    let found = LeftoverScanner.scan(identity: finalCut, library: library, systemLibrary: system)
+    #expect(found.count == 1)
+    let row = try #require(found.first)
+    #expect(row.category == .systemCrashReports && row.category.isSystemWide)
+    #expect(row.url.path == reports.path && row.isGroup)
+    #expect(row.files.map(\.lastPathComponent) == [
+        "Final Cut Pro Helper (GPU)-2026-10-06-121029.ips",
+        "Final Cut Pro_2026-10-06-121029_host.diag",
+    ])
+}
+
 @Test func sharedItemsAreMarkedAndNeverAddedBehindTheUsersBack() throws {
     let root = temporaryFolder()
     defer { try? FileManager.default.removeItem(at: root) }

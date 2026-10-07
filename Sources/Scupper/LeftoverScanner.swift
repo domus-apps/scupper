@@ -1,17 +1,19 @@
 import Foundation
 
 /* Where macOS apps leave things: mostly the user's own ~/Library, and a
-   few places in the system-wide /Library that installers use (daemons,
-   privileged helpers, shared support files), which need an administrator
-   to move. Every location is matched by the app's bundle identifiers; a
-   few, where apps traditionally use their plain name (Application
-   Support, Caches, Logs), by name too. */
+   few places in the system-wide /Library: what installers put there
+   (daemons, privileged helpers, shared support files, plug-ins), which
+   mostly needs an administrator to move, and macOS's diagnostic reports.
+   Every location is matched by the app's bundle identifiers; a few, where
+   apps traditionally use their plain name (Application Support, Caches,
+   Logs), by name too. */
 enum LeftoverCategory: Int, CaseIterable, Sendable {
     case applicationSupport, caches, preferences, containers, groupContainers
     case savedState, httpStorages, webKit, logs, crashReports, launchAgents
     case applicationScripts, backgroundDownloads, analytics, recentDocuments
+    case syncedPreferences, fileProvider, plugIns
     // In /Library.
-    case systemApplicationSupport, systemCaches, systemPreferences
+    case systemApplicationSupport, systemCaches, systemPreferences, systemCrashReports, systemPlugIns
     case systemLaunchAgents, launchDaemons, privilegedHelpers
 
     /// Folders under the Library whose entries are checked: ~/Library, or
@@ -29,6 +31,7 @@ enum LeftoverCategory: Int, CaseIterable, Sendable {
         case .webKit: ["WebKit"]
         case .logs: ["Logs"]
         case .crashReports: ["Logs/DiagnosticReports", "Application Support/CrashReporter"]
+        case .systemCrashReports: ["Logs/DiagnosticReports"]
         case .launchAgents, .systemLaunchAgents: ["LaunchAgents"]
         case .launchDaemons: ["LaunchDaemons"]
         case .privilegedHelpers: ["PrivilegedHelperTools"]
@@ -37,8 +40,42 @@ enum LeftoverCategory: Int, CaseIterable, Sendable {
         case .analytics: ["Logs/AppAnalytics"]
         case .recentDocuments:
             ["Application Support/com.apple.sharedfilelist/com.apple.LSSharedFileList.ApplicationRecentDocuments"]
+        case .syncedPreferences: ["SyncedPreferences"]
+        case .fileProvider: ["Application Support/FileProvider"]
+        case .plugIns, .systemPlugIns: Self.plugInFolders
         }
     }
+
+    /* Where plug-ins for other software go: Quick Look, Spotlight, input
+       methods, audio units and drivers, screen savers, Services. */
+    static let plugInFolders = [
+        "QuickLook", "Spotlight", "Screen Savers", "Input Methods", "PreferencePanes", "Internet Plug-Ins",
+        "Audio/Plug-Ins/Components", "Audio/Plug-Ins/VST", "Audio/Plug-Ins/VST3", "Audio/Plug-Ins/HAL",
+        "ColorPickers", "Contextual Menu Items", "Services",
+    ]
+
+    /* Folders that are never listed: macOS refuses some (and answers
+       with a "Data Access Blocked" notification), though an item in them
+       can still be looked up by name. */
+    var isLookedUpByName: Bool {
+        self == .recentDocuments || self == .syncedPreferences || self == .fileProvider
+    }
+
+    /// The names an identifier's item would have in a looked-up folder.
+    func lookupNames(for id: String) -> [String] {
+        switch self {
+        case .recentDocuments: LeftoverMatcher.recentDocumentsExtensions.map { id + "." + $0 }
+        case .syncedPreferences: [id + ".plist"]
+        default: [id]
+        }
+    }
+
+    /// Folders that, when they can't be listed, can't be written either:
+    /// moving out of them needs Full Disk Access.
+    var isGuarded: Bool { self == .recentDocuments || self == .fileProvider }
+
+    /// Matched by the identifier inside each plug-in, not by its file name.
+    var isPlugIns: Bool { self == .plugIns || self == .systemPlugIns }
 
     /// In /Library, for every user: moving these asks for an administrator.
     var isSystemWide: Bool { rawValue >= LeftoverCategory.systemApplicationSupport.rawValue }
@@ -51,8 +88,10 @@ enum LeftoverCategory: Int, CaseIterable, Sendable {
        record or crash report per launch) are shown as one row per folder
        rather than one per file. */
     var groupsFiles: Bool {
-        self == .analytics || self == .crashReports
+        self == .analytics || isCrashReports
     }
+
+    var isCrashReports: Bool { self == .crashReports || self == .systemCrashReports }
 
     /* Some vendors file every product under one folder — Application
        Support/Google/Chrome, Caches/Mozilla/Firefox, JetBrains/… — so the
@@ -76,7 +115,7 @@ enum LeftoverCategory: Int, CaseIterable, Sendable {
         case .httpStorages: L("Cookies & Web Storage")
         case .webKit: L("WebKit Data")
         case .logs: L("Logs")
-        case .crashReports: L("Crash Reports")
+        case .crashReports, .systemCrashReports: L("Crash Reports")
         case .launchAgents, .systemLaunchAgents: L("Launch Agent")
         case .launchDaemons: L("Launch Daemon")
         case .privilegedHelpers: L("Privileged Helper")
@@ -84,6 +123,9 @@ enum LeftoverCategory: Int, CaseIterable, Sendable {
         case .backgroundDownloads: L("Background Downloads")
         case .analytics: L("Analytics Logs")
         case .recentDocuments: L("Recent Documents List")
+        case .syncedPreferences: L("Synced Preferences")
+        case .fileProvider: L("File Provider Data")
+        case .plugIns, .systemPlugIns: L("Plug-In")
         }
     }
 }
@@ -139,6 +181,12 @@ struct Leftover: Identifiable, Equatable, Sendable {
     }
 
     var isGroup: Bool { files.count != 1 || files.first != url }
+
+    /* Left for the user to check: a plug-in tied to the app only by its
+       developer's signature, which may have been installed on its own. */
+    var needsReview: Bool {
+        category.isPlugIns && evidence == .developer
+    }
     var id: URL { url }
 }
 
@@ -162,14 +210,12 @@ enum LeftoverMatcher {
             return .helper
         }
         switch category {
-        case .crashReports:
-            // "Name-2026-09-07-120000.ips", "Name_2026-09-07-120000_host.crash"
-            let named = identity.names.contains { candidate in
-                let lower = candidate.lowercased()
-                return lower.count >= 3 && (name.hasPrefix(lower + "-") || name.hasPrefix(lower + "_"))
-            }
-            return named ? .name : nil
-        case .applicationSupport, .caches, .logs, .systemApplicationSupport, .systemCaches:
+        case .crashReports, .systemCrashReports:
+            return identity.names.contains { crashReportMatches(name, $0.lowercased()) } ? .name : nil
+        case .logs:
+            // A folder, or a single "Name.log".
+            return nameMatches(stripping(".log", from: name) ?? name, identity) ? .name : nil
+        case .applicationSupport, .caches, .systemApplicationSupport, .systemCaches:
             return nameMatches(name, identity) ? .name : nil
         default:
             return nil
@@ -180,7 +226,10 @@ enum LeftoverMatcher {
     /// bundle identifier, in the shape `category` uses.
     static func matches(_ name: String, in category: LeftoverCategory, bundleID: String) -> Bool {
         switch category {
-        case .preferences, .launchAgents, .systemPreferences, .systemLaunchAgents, .launchDaemons:
+        case .preferences, .systemPreferences:
+            // "com.x.app.plist", or a folder of them named for the app
+            return identifierMatches(stripping(".plist", from: name) ?? name, bundleID)
+        case .launchAgents, .systemLaunchAgents, .launchDaemons, .syncedPreferences:
             guard let stem = stripping(".plist", from: name) else { return false }
             return identifierMatches(stem, bundleID)
         case .savedState:
@@ -202,10 +251,14 @@ enum LeftoverMatcher {
                sits inside, on dot boundaries. */
             return identifierMatches(name, bundleID) || name.hasSuffix("." + bundleID)
                 || name.contains("." + bundleID + ".")
-        case .crashReports:
+        case .crashReports, .systemCrashReports:
             return false
         case .applicationSupport, .caches, .logs, .containers, .webKit, .applicationScripts,
-             .backgroundDownloads, .systemApplicationSupport, .systemCaches, .privilegedHelpers:
+             .backgroundDownloads, .systemApplicationSupport, .systemCaches, .privilegedHelpers,
+             .fileProvider:
+            return identifierMatches(name, bundleID)
+        case .plugIns, .systemPlugIns:
+            // Here the name is the plug-in's bundle identifier.
             return identifierMatches(name, bundleID)
         }
     }
@@ -233,8 +286,9 @@ enum LeftoverMatcher {
             where id.count >= specific && matches(name, in: category, bundleID: id) {
                 claimants += apps
             }
-        } else if evidence(for: entry, in: category, identity: identity) == .name, category != .crashReports {
-            claimants += others.names[squeezed(name)] ?? []
+        } else if evidence(for: entry, in: category, identity: identity) == .name, !category.isCrashReports {
+            let stem = category == .logs ? stripping(".log", from: name) ?? name : name
+            claimants += others.names[squeezed(stem)] ?? []
         }
         var seen = Set<String>()
         return claimants.sorted().filter { seen.insert($0).inserted }
@@ -260,6 +314,21 @@ enum LeftoverMatcher {
         return identity.names.contains {
             $0.count >= 3 && ($0.lowercased() == text || (squeezed.count >= 3 && Self.squeezed($0) == squeezed))
         }
+    }
+
+    /* A report is named for the process that crashed, then a date:
+       "Name-2026-09-07-120000.ips", "Name_2026-09-07-120000_host.diag".
+       Electron and Chromium apps crash as often in their helper processes
+       ("Notion Helper (Renderer)", "Google Chrome Helper"), which are
+       named for the app too. */
+    static func crashReportMatches(_ report: String, _ name: String) -> Bool {
+        guard name.count >= 3, report.hasPrefix(name) else { return false }
+        var rest = report.dropFirst(name.count)
+        if rest.hasPrefix(" helper") {
+            rest = rest.dropFirst(" helper".count)
+            if rest.hasPrefix(" (") { return true }
+        }
+        return rest.hasPrefix("-") || rest.hasPrefix("_")
     }
 
     /// Letters and digits only, lowercased.
@@ -334,16 +403,19 @@ enum LeftoverScanner {
     static func scan(identity: AppIdentity, others: OtherApps = .none, library: URL = userLibrary,
                      systemLibrary: URL? = systemLibrary) -> [Leftover] {
         var found: [Leftover] = []
-        func add(_ url: URL, _ category: LeftoverCategory, _ evidence: Evidence, sharedWith: [String]? = nil) {
+        func add(_ url: URL, _ category: LeftoverCategory, _ evidence: Evidence, sharedWith: [String]? = nil,
+                 isProtected: Bool = false) {
             guard !found.contains(where: { $0.url == url }) else { return }
             let measured = measure(url)
             found.append(Leftover(
                 url: url, category: category, size: measured.bytes,
                 sharedWith: sharedWith ?? LeftoverMatcher.sharedWith(
                     url.lastPathComponent, in: category, identity: identity, others: others),
-                isProtected: measured.blocked && (category == .containers || category == .groupContainers),
+                isProtected: isProtected
+                    || measured.blocked && (category == .containers || category == .groupContainers),
                 evidence: evidence))
         }
+        let vendor = AppInspector.vendorDomain(identity.bundleID)
         func root(of category: LeftoverCategory) -> URL? {
             category.isSystemWide ? systemLibrary : library
         }
@@ -355,20 +427,17 @@ enum LeftoverScanner {
             guard let root = root(of: category) else { continue }
             for relative in category.directories {
                 let directory = root.appendingPathComponent(relative)
-                /* The recent documents folder can't be listed without Full
-                   Disk Access, but a file in it can still be looked up by
-                   name — nor written to, so what's found is protected. */
-                if category == .recentDocuments {
+                /* Looked up by name, never listed. Where the folder can't be
+                   listed it can't be written either (the recent documents
+                   lists, File Provider data), so what's found is protected. */
+                if category.isLookedUpByName {
                     let listable = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) != nil
                     for id in identity.bundleIDs {
-                        for ext in LeftoverMatcher.recentDocumentsExtensions {
-                            let url = directory.appendingPathComponent(id + "." + ext)
-                            guard FileManager.default.fileExists(atPath: url.path),
-                                !found.contains(where: { $0.url == url })
-                            else { continue }
-                            found.append(Leftover(url: url, category: category, size: size(of: url),
-                                                  isProtected: !listable,
-                                                  evidence: id == identity.bundleID ? .identifier : .helper))
+                        for name in category.lookupNames(for: id) {
+                            let url = directory.appendingPathComponent(name)
+                            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+                            add(url, category, id == identity.bundleID ? .identifier : .helper,
+                                isProtected: category.isGuarded && !listable)
                         }
                     }
                     continue
@@ -392,6 +461,24 @@ enum LeftoverScanner {
                 let folders = found.filter { !$0.isGroup && !$0.category.isLaunchJob }
                     .map { $0.url.resolvingSymlinksInPath().path }
                 for entry in entries {
+                    /* A plug-in is the app's when its identifier is, or when
+                       the app's developer signed it. Not by its file name:
+                       Services also holds the user's own workflows. The
+                       signature is read only for the vendor's own
+                       identifiers: a music Mac can hold hundreds of audio
+                       plug-ins, at a couple of milliseconds each. */
+                    if category.isPlugIns {
+                        guard let id = Bundle(url: entry)?.bundleIdentifier, !id.isEmpty else { continue }
+                        if let evidence = LeftoverMatcher.evidence(for: id, in: category, identity: identity) {
+                            add(entry, category, evidence, sharedWith: LeftoverMatcher.sharedWith(
+                                id, in: category, identity: identity, others: others))
+                        } else if !vendor.isEmpty, AppInspector.vendorDomain(id) == vendor,
+                            let claimants = developerClaim(entry.path, identity, others)
+                        {
+                            add(entry, category, .developer, sharedWith: claimants)
+                        }
+                        continue
+                    }
                     if let evidence = LeftoverMatcher.evidence(
                         for: entry.lastPathComponent, in: category, identity: identity)
                     {
@@ -463,13 +550,13 @@ enum LeftoverScanner {
         return (others.teams[team.lowercased()] ?? []).sorted()
     }
 
-    /* What starts checked: everything the app alone uses — nothing at
-       all when another copy is installed (it shares every file) or the
-       app is part of macOS (whose files stay in use as long as the system
-       does). */
+    /* What starts checked: everything the app alone uses, except what
+       needs the user's say (`needsReview`); nothing at all when another
+       copy is installed (it shares every file) or the app is part of macOS
+       (whose files stay in use as long as the system does). */
     static func initialSelection(_ found: [Leftover], isSystemApp: Bool, hasOtherCopies: Bool) -> Set<URL> {
         guard !isSystemApp, !hasOtherCopies else { return [] }
-        return Set(found.filter(\.sharedWith.isEmpty).map(\.url))
+        return Set(found.filter { $0.sharedWith.isEmpty && !$0.needsReview }.map(\.url))
     }
 
     /* Quitting is when apps write: saved state, window positions, a last
@@ -482,7 +569,7 @@ enum LeftoverScanner {
         let known = Set(shown.map(\.url))
         let vetoed = Set(shown.filter { !selection.contains($0.url) }.map(\.category))
         return rescan.filter {
-            !known.contains($0.url) && !vetoed.contains($0.category) && $0.sharedWith.isEmpty
+            !known.contains($0.url) && !vetoed.contains($0.category) && $0.sharedWith.isEmpty && !$0.needsReview
         }
     }
 

@@ -38,7 +38,10 @@ private let code = AppIdentity(bundleID: "com.microsoft.VSCode", names: ["Visual
     #expect(LeftoverMatcher.matches("com.jhaemin.sill.plist", in: .preferences, identity: sill))
     #expect(LeftoverMatcher.matches("com.jhaemin.sill.dev.plist", in: .preferences, identity: sill))
     #expect(LeftoverMatcher.matches("com.jhaemin.sill.A1B2C3.plist", in: .preferences, identity: sill))  // ByHost
-    #expect(!LeftoverMatcher.matches("com.jhaemin.sill", in: .preferences, identity: sill))  // no .plist
+    // A folder of preferences named for the app.
+    #expect(LeftoverMatcher.matches("com.jhaemin.sill", in: .preferences, identity: sill))
+    #expect(!LeftoverMatcher.matches("com.jhaemin.sillage", in: .preferences, identity: sill))
+    #expect(!LeftoverMatcher.matches("Sill", in: .preferences, identity: sill))
     #expect(!LeftoverMatcher.matches("com.jhaemin.sillage.plist", in: .preferences, identity: sill))
     #expect(LeftoverMatcher.matches("com.jhaemin.sill.agent.plist", in: .launchAgents, identity: sill))
 }
@@ -72,6 +75,23 @@ private let code = AppIdentity(bundleID: "com.microsoft.VSCode", names: ["Visual
     #expect(LeftoverMatcher.matches("Code_2026-09-07-120000_mac.crash", in: .crashReports, identity: code))
     #expect(!LeftoverMatcher.matches("Sillage-2026-09-07-120000.ips", in: .crashReports, identity: sill))
     #expect(!LeftoverMatcher.matches("Sill.ips", in: .crashReports, identity: sill))
+    // macOS's own diagnostic reports in /Library: same names.
+    #expect(LeftoverMatcher.matches("Sill_2026-10-06-121029_host.diag", in: .systemCrashReports, identity: sill))
+    // The app's helper processes, named for it.
+    let notion = AppIdentity(bundleID: "notion.id", names: ["Notion"])
+    #expect(LeftoverMatcher.matches("Notion Helper_2026-10-06-160313_host.diag", in: .systemCrashReports, identity: notion))
+    #expect(LeftoverMatcher.matches("Notion Helper (Renderer)-2026-10-06-160313.ips", in: .crashReports, identity: notion))
+    #expect(!LeftoverMatcher.matches("Notion Helpers-2026-10-06-160313.ips", in: .crashReports, identity: notion))
+    #expect(!LeftoverMatcher.matches("Notion Helper.ips", in: .crashReports, identity: notion))
+}
+
+@Test func aLogFileNamedForTheAppIsItsToo() {
+    #expect(LeftoverMatcher.evidence(for: "Sill.log", in: .logs, identity: sill) == .name)
+    #expect(!LeftoverMatcher.matches("Sillage.log", in: .logs, identity: sill))
+    #expect(!LeftoverMatcher.matches("Sill.log", in: .caches, identity: sill))
+    // Shared with another app of that name, like a folder would be.
+    let others = OtherApps(names: ["sill": ["Sill"]])
+    #expect(LeftoverMatcher.sharedWith("Sill.log", in: .logs, identity: sill, others: others) == ["Sill"])
 }
 
 @Test func scannerFindsMatchingEntriesAcrossTheLibraryWithSizes() throws {
@@ -133,6 +153,72 @@ private let code = AppIdentity(bundleID: "com.microsoft.VSCode", names: ["Visual
     let support = try #require(found.first { $0.category == .applicationSupport })
     #expect((support.size ?? 0) >= 150)
     #expect(found.first { $0.category == .preferences }?.size ?? 0 >= 20)
+}
+
+@Test func lessCommonPlacesAndPlugInsAreFoundByIdentifier() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("scupper-test-\(UUID().uuidString)")
+    let library = root.appendingPathComponent("Library")
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    func write(_ relative: String) throws {
+        let url = library.appendingPathComponent(relative)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0x41, count: 10).write(to: url)
+    }
+    func plugIn(_ relative: String, id: String?) throws {
+        let info = library.appendingPathComponent(relative).appendingPathComponent("Contents/Info.plist")
+        try FileManager.default.createDirectory(
+            at: info.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let plist: [String: Any] = id.map { ["CFBundleIdentifier": $0] } ?? ["CFBundleName": "Workflow"]
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: info)
+    }
+    try write("SyncedPreferences/com.jhaemin.sill.plist")
+    try write("SyncedPreferences/com.jhaemin.coffer.plist")
+    try write("Preferences/com.jhaemin.sill/state.plist")
+    try write("Application Support/FileProvider/com.jhaemin.sill/db")
+    try write("SyncedPreferences/com.jhaemin.sillage.plist")
+    try plugIn("QuickLook/Preview Anything.qlgenerator", id: "com.jhaemin.sill.quicklook")
+    try plugIn("QuickLook/Sill.qlgenerator", id: "com.other.quicklook")
+    // Named for the app, but the user's own: no identifier, never taken.
+    try plugIn("Services/Sill.workflow", id: nil)
+
+    let found = LeftoverScanner.scan(identity: sill, library: library, systemLibrary: nil)
+    let base = library.resolvingSymlinksInPath().path
+    let paths = found.map { String($0.url.resolvingSymlinksInPath().path.dropFirst(base.count + 1)) }
+    #expect(paths == [
+        "Preferences/com.jhaemin.sill",
+        "SyncedPreferences/com.jhaemin.sill.plist",
+        "Application Support/FileProvider/com.jhaemin.sill",
+        "QuickLook/Preview Anything.qlgenerator",
+    ])
+    #expect(found.first { $0.category == .plugIns }?.evidence == .identifier)
+}
+
+@Test func plugInsOnlyTheDeveloperSignedWaitForTheUser() {
+    let signed = Leftover(url: URL(fileURLWithPath: "/Library/QuickLook/X.qlgenerator"), category: .systemPlugIns,
+                          size: 1, evidence: .developer)
+    let named = Leftover(url: URL(fileURLWithPath: "/Library/QuickLook/Y.qlgenerator"), category: .systemPlugIns,
+                         size: 1, evidence: .identifier)
+    // A launch job signed by the developer is still the app's.
+    let job = Leftover(url: URL(fileURLWithPath: "/Library/LaunchDaemons/z.plist"), category: .launchDaemons,
+                       size: 1, evidence: .developer)
+    #expect(signed.needsReview && !named.needsReview && !job.needsReview)
+    let found = [signed, named, job]
+    #expect(LeftoverScanner.initialSelection(found, isSystemApp: false, hasOtherCopies: false)
+        == [named.url, job.url])
+    // Nor is one added behind the user's back after the app quits.
+    #expect(LeftoverScanner.additions(after: found, shown: [], selection: []).map(\.url) == [named.url, job.url])
+}
+
+@Test func fileProviderDataIsGuardedLikeContainers() {
+    let error = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError)
+    let library = LeftoverScanner.userLibrary
+    #expect(Remover.isContainerProtection(
+        error, at: library.appendingPathComponent("Application Support/FileProvider/com.x.app")))
+    #expect(!Remover.isContainerProtection(
+        error, at: library.appendingPathComponent("Caches/com.x.app")))
 }
 
 @Test func abbreviatedPathsStartAtTheHome() {

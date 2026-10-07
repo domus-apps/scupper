@@ -17,9 +17,13 @@ Drop an app onto the window or the Dock icon. Scupper reads the app's bundle
 identifier and names, then looks through your Library in the places apps
 keep things: Application Support, Caches, Preferences, Containers, Group
 Containers, Saved Application State, HTTPStorages, WebKit, Logs, crash
-reports, analytics records, recent document lists, Launch Agents, Application
-Scripts, and background downloads. Vendor folders such as Application
-Support/Google are looked into one level down. Folders that collect one small
+reports, analytics records, recent document lists, synced preferences, File
+Provider data, Launch Agents, Application Scripts, background downloads, and
+plug-ins (Quick Look, Spotlight, input methods,
+audio units, screen savers, Services). Vendor folders such as Application
+Support/Google are looked into one level down. Crash reports are matched by
+the app's name, its helper processes included (`Notion Helper`), in your
+Library and in the system's diagnostic reports. Folders that collect one small
 file per launch, like the analytics records, show as a single row.
 Everything it finds is listed with its size, checked, and one click moves it
 to the Trash along with the app. Nothing is deleted outright, so the Trash is
@@ -37,11 +41,17 @@ Matching is deliberately strict. A folder counts when its name is the bundle
 identifier or something under it (`com.vendor.app.helper`), and in the few
 places where apps traditionally use their plain name (Application Support,
 Caches, Logs) when it equals the app's name. Files of other apps from the
-same vendor stay where they are.
+same vendor stay where they are. A plug-in counts by the identifier inside it,
+never by its file name, so a workflow you made yourself in Services stays put.
 
-Only your own Library is touched. Nothing in `/Library` or the system needs
-an administrator, and Scupper never asks for one. A running app is asked to
-quit before it moves.
+A plug-in tied to the app only by its developer's signature is listed but
+left unchecked, since you may have installed it on its own.
+
+Most of what an app leaves is in your own Library. Installers also put
+things in `/Library`: launch daemons, privileged helpers, shared support
+files. Those are listed in their own section, and moving them asks for an
+administrator password once. The system's diagnostic reports move without
+one, since administrators can already write there.
 
 ## Development
 

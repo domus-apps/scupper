@@ -63,6 +63,11 @@
 "Recent Documents List" = "최근 문서 목록";
 "Launch Daemon" = "시스템 실행 항목";
 "Privileged Helper" = "권한 있는 도우미";
+"Synced Preferences" = "동기화된 환경설정";
+"File Provider Data" = "파일 제공자 데이터";
+"Plug-In" = "플러그인";
+"From the same developer" = "같은 개발자의 항목";
+"1 file" = "파일 1개";
 "%d files" = "파일 %d개";
 
 /* Full Disk Access, for other apps' containers */

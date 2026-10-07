@@ -178,9 +178,21 @@ enum Remover {
 
     // MARK: - Administrator
 
-    /// Items only an administrator can move: everything in /Library.
+    /* Items only an administrator can move: everything in /Library, except
+       where the folder lets us move it. Diagnostic reports are root's, but
+       their folder is open to the analytics group, which administrators
+       belong to; anyone else is asked for a password as before. In a
+       sticky folder anyone may write to (/Library/Caches), only an item's
+       owner may move it. */
     static func needsAdministrator(_ url: URL) -> Bool {
-        url.path.hasPrefix(LeftoverScanner.systemLibrary.path + "/")
+        guard url.path.hasPrefix(LeftoverScanner.systemLibrary.path + "/") else { return false }
+        let folder = url.deletingLastPathComponent().path
+        var folderInfo = stat()
+        var itemInfo = stat()
+        guard FileManager.default.isWritableFile(atPath: folder),
+            stat(folder, &folderInfo) == 0, lstat(url.path, &itemInfo) == 0
+        else { return true }
+        return folderInfo.st_mode & S_ISVTX != 0 && itemInfo.st_uid != getuid()
     }
 
     /* /Library items move in one `do shell script … with administrator
@@ -256,15 +268,16 @@ enum Remover {
     /* ~/Library/Containers and ~/Library/Group Containers belong to the
        apps that made them, and macOS refuses to move them for anyone else
        (a write-permission error, even once the owner is gone) unless the
-       mover has Full Disk Access. The recent documents lists are guarded
-       the same way. */
+       mover has Full Disk Access. The recent documents lists and File
+       Provider data are guarded the same way. */
     static func isContainerProtection(_ error: Error, at url: URL) -> Bool {
         let error = error as NSError
         guard error.domain == NSCocoaErrorDomain, error.code == NSFileWriteNoPermissionError else {
             return false
         }
         let library = LeftoverScanner.userLibrary.path
-        return ["Containers", "Group Containers", LeftoverCategory.recentDocuments.directories[0]].contains {
+        let guarded = LeftoverCategory.allCases.filter(\.isGuarded).flatMap(\.directories)
+        return (["Containers", "Group Containers"] + guarded).contains {
             url.path.hasPrefix(library + "/" + $0 + "/")
         }
     }

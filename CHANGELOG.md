@@ -4,6 +4,21 @@ All notable changes to Scupper are documented here. The release workflow publish
 
 Keep each bullet on a single line: release notes render line breaks literally (both on GitHub and in the update dialog), so wrapped lines would break mid-sentence.
 
+## 1.3.0
+
+### Added
+
+- Diagnostic reports in the system Library are found too, and they move to the Trash without an administrator password. Linear's diagnostic report in /Library/Logs is listed with Linear.
+- Reports from an app's helper processes are found too. Notion Helper's reports are listed with Notion.
+- A log file named after the app is found too. Fork.log is listed with Fork.
+- Plug-ins an app installed are found by what's inside them, not by their file names: Quick Look, Spotlight, input methods, audio units, screen savers, and Services. A Quick Look preview that came with an app is listed with that app.
+- Plug-ins tied to the app only by its developer's signature are listed unchecked.
+- Synced settings, File Provider data, and the app's own folder in Preferences are found too.
+
+### Fixed
+
+- A row holding one file read "1 files".
+
 ## 1.2.0
 
 ### Added

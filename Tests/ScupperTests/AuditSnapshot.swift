@@ -34,6 +34,7 @@ import Testing
             if item.isGroup { line += "  group" }
             if !item.sharedWith.isEmpty { line += "  shared: " + item.sharedWith.joined(separator: ", ") }
             if item.isProtected { line += "  protected" }
+            if item.needsReview { line += "  review" }
             lines.append(line)
         }
     }

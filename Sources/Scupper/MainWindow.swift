@@ -374,9 +374,11 @@ struct ReviewView: View {
                     } header: {
                         Text(L("Left behind in the system Library"))
                     } footer: {
-                        Text(L("Moving these asks for an administrator password."))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        if model.systemLeftovers.contains(where: { $0.files.contains(where: Remover.needsAdministrator) }) {
+                            Text(L("Moving these asks for an administrator password."))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
@@ -417,7 +419,7 @@ struct ReviewView: View {
         Toggle(isOn: binding(for: item)) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(abbreviatedPath(item.url) + (item.isGroup ? " · " + L("%d files", item.files.count) : ""))
+                    Text(abbreviatedPath(item.url) + (item.isGroup ? " · " + (item.files.count == 1 ? L("1 file") : L("%d files", item.files.count)) : ""))
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Text(caption(for: item))
@@ -442,9 +444,14 @@ struct ReviewView: View {
     }
 
     private func caption(for item: Leftover) -> String {
-        guard !item.sharedWith.isEmpty else { return item.category.title }
-        let apps = ListFormatter.localizedString(byJoining: item.sharedWith)
-        return item.category.title + " · " + L("Also used by %@", apps)
+        var parts = [item.category.title]
+        if !item.sharedWith.isEmpty {
+            parts.append(L("Also used by %@", ListFormatter.localizedString(byJoining: item.sharedWith)))
+        }
+        if item.needsReview {
+            parts.append(L("From the same developer"))
+        }
+        return parts.joined(separator: " · ")
     }
 
     private func binding(for item: Leftover) -> Binding<Bool> {
