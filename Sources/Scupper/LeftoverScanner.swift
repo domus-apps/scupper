@@ -4,11 +4,13 @@ import Foundation
    few places in the system-wide /Library: what installers put there
    (daemons, privileged helpers, shared support files, plug-ins), which
    mostly needs an administrator to move, and macOS's diagnostic reports.
+   And one outside any Library: the per-user cache folder macOS keeps
+   under /var/folders.
    Every location is matched by the app's bundle identifiers; a few, where
    apps traditionally use their plain name (Application Support, Caches,
    Logs), by name too. */
 enum LeftoverCategory: Int, CaseIterable, Sendable {
-    case applicationSupport, caches, preferences, containers, groupContainers
+    case applicationSupport, caches, darwinUserCache, preferences, containers, groupContainers
     case savedState, httpStorages, webKit, logs, crashReports, launchAgents
     case applicationScripts, backgroundDownloads, analytics, recentDocuments
     case syncedPreferences, fileProvider, plugIns
@@ -22,6 +24,7 @@ enum LeftoverCategory: Int, CaseIterable, Sendable {
         switch self {
         case .applicationSupport, .systemApplicationSupport: ["Application Support"]
         case .caches, .systemCaches: ["Caches"]
+        case .darwinUserCache: [""]
         case .preferences: ["Preferences", "Preferences/ByHost"]
         case .systemPreferences: ["Preferences"]
         case .containers: ["Containers"]
@@ -108,6 +111,7 @@ enum LeftoverCategory: Int, CaseIterable, Sendable {
         switch self {
         case .applicationSupport, .systemApplicationSupport: L("Application Support")
         case .caches, .systemCaches: L("Caches")
+        case .darwinUserCache: L("macOS Cache")
         case .preferences, .systemPreferences: L("Preferences")
         case .containers: L("Container")
         case .groupContainers: L("Group Container")
@@ -253,6 +257,11 @@ enum LeftoverMatcher {
                 || name.contains("." + bundleID + ".")
         case .crashReports, .systemCrashReports:
             return false
+        case .darwinUserCache:
+            /* What macOS caches for the app itself (Metal shaders, mostly),
+               filed under its identifier; some under "TEAMID.com.x.app". */
+            return identifierMatches(name, bundleID)
+                || identifierMatches(strippingTeamID(from: name) ?? name, bundleID)
         case .applicationSupport, .caches, .logs, .containers, .webKit, .applicationScripts,
              .backgroundDownloads, .systemApplicationSupport, .systemCaches, .privilegedHelpers,
              .fileProvider:
@@ -357,6 +366,15 @@ enum LeftoverMatcher {
         return job.associatedBundleIDs.contains { ids.contains($0.lowercased()) } ? .associated : nil
     }
 
+    /// "com.x.app" from "2bua8c4s2c.com.x.app": a ten-character team
+    /// identifier, then a dot.
+    static func strippingTeamID(from text: String) -> String? {
+        let parts = text.split(separator: ".", maxSplits: 1)
+        guard parts.count == 2, parts[0].count == 10, parts[0].allSatisfy({ $0.isLetter || $0.isNumber })
+        else { return nil }
+        return String(parts[1])
+    }
+
     private static func stripping(_ suffix: String, from text: String) -> String? {
         text.hasSuffix(suffix) ? String(text.dropLast(suffix.count)) : nil
     }
@@ -396,12 +414,21 @@ enum LeftoverScanner {
 
     static let systemLibrary = URL(fileURLWithPath: "/Library")
 
-    /// Everything under `library` (and `systemLibrary`, unless nil) that
-    /// the matcher assigns to the app, sizes included, marked with the
-    /// other apps that share it. Slow on big caches — run off the main
-    /// thread.
+    /* /var/folders/…/C: where macOS keeps caches on an app's behalf, per
+       user, outside the Library. It outlives the app like any other
+       cache: Parallels, long gone, still had 131 MB of shaders here. */
+    static var darwinUserCache: URL? {
+        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        guard confstr(_CS_DARWIN_USER_CACHE_DIR, &buffer, buffer.count) > 0 else { return nil }
+        return URL(fileURLWithPath: String(cString: buffer), isDirectory: true)
+    }
+
+    /// Everything under `library` (and `systemLibrary` and `darwinUserCache`,
+    /// unless nil) that the matcher assigns to the app, sizes included,
+    /// marked with the other apps that share it. Slow on big caches — run
+    /// off the main thread.
     static func scan(identity: AppIdentity, others: OtherApps = .none, library: URL = userLibrary,
-                     systemLibrary: URL? = systemLibrary) -> [Leftover] {
+                     systemLibrary: URL? = systemLibrary, darwinUserCache: URL? = darwinUserCache) -> [Leftover] {
         var found: [Leftover] = []
         func add(_ url: URL, _ category: LeftoverCategory, _ evidence: Evidence, sharedWith: [String]? = nil,
                  isProtected: Bool = false) {
@@ -417,7 +444,8 @@ enum LeftoverScanner {
         }
         let vendor = AppInspector.vendorDomain(identity.bundleID)
         func root(of category: LeftoverCategory) -> URL? {
-            category.isSystemWide ? systemLibrary : library
+            if category == .darwinUserCache { return darwinUserCache }
+            return category.isSystemWide ? systemLibrary : library
         }
         // Launch jobs last: they are also matched by what they run, which
         // may be inside a folder found before them.
@@ -426,7 +454,7 @@ enum LeftoverScanner {
         for category in order {
             guard let root = root(of: category) else { continue }
             for relative in category.directories {
-                let directory = root.appendingPathComponent(relative)
+                let directory = relative.isEmpty ? root : root.appendingPathComponent(relative)
                 /* Looked up by name, never listed. Where the folder can't be
                    listed it can't be written either (the recent documents
                    lists, File Provider data), so what's found is protected. */

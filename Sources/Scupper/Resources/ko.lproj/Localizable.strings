@@ -7,6 +7,12 @@
 "File" = "파일";
 "Open…" = "열기…";
 "Close Window" = "윈도우 닫기";
+"Edit" = "편집";
+"Cut" = "오려두기";
+"Copy" = "복사";
+"Paste" = "붙여넣기";
+"Select All" = "전체 선택";
+"Find…" = "찾기…";
 "Window" = "윈도우";
 "Minimize" = "축소";
 
@@ -19,6 +25,14 @@
 "Choose the app to remove along with its leftovers." = "남은 파일과 함께 삭제할 앱을 선택하세요.";
 "Looking for leftovers…" = "남은 파일을 찾는 중…";
 
+/* 앱 목록 */
+"Search Apps" = "앱 검색";
+"Name" = "이름";
+"Size" = "크기";
+"Or drop an app here." = "여기에 앱을 놓아도 됩니다.";
+"Other App…" = "다른 앱…";
+"Find Leftovers" = "남은 파일 찾기";
+
 /* 검토 */
 "Move the app itself to the Trash" = "앱 자체도 휴지통으로 옮기기";
 "Part of macOS. It can't be removed." = "macOS의 일부라 삭제할 수 없습니다.";
@@ -26,7 +40,7 @@
 "Nothing. This app kept its files to itself." = "없습니다. 이 앱은 밖에 파일을 남기지 않았습니다.";
 "1 item" = "1개 항목";
 "%d items" = "%d개 항목";
-"Choose Another…" = "다른 앱 선택…";
+"Cancel" = "취소";
 "Move to Trash" = "휴지통으로 이동";
 "Still running. Quit it and try again." = "아직 실행 중입니다. 종료한 뒤 다시 시도하세요.";
 "Also used by %@" = "%@에서도 사용";
@@ -48,6 +62,7 @@
 /* 위치 */
 "Application Support" = "응용 프로그램 지원";
 "Caches" = "캐시";
+"macOS Cache" = "macOS 캐시";
 "Preferences" = "환경설정";
 "Container" = "컨테이너";
 "Group Container" = "그룹 컨테이너";

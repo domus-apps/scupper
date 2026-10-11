@@ -108,7 +108,7 @@ private func writePlist(_ url: URL, _ plist: [String: Any]) throws {
     try write(system.appendingPathComponent("Preferences/com.valvesoftware.steam.plist"))
     try write(system.appendingPathComponent("Preferences/com.valvesoftware.steamy.plist"))
 
-    let found = LeftoverScanner.scan(identity: steam, library: library, systemLibrary: system)
+    let found = LeftoverScanner.scan(identity: steam, library: library, systemLibrary: system, darwinUserCache: nil)
     let names = found.map {
         ($0.category, $0.url.resolvingSymlinksInPath().path.replacingOccurrences(of: root.path + "/", with: ""))
     }
@@ -136,7 +136,7 @@ private func writePlist(_ url: URL, _ plist: [String: Any]) throws {
     try write(reports.appendingPathComponent("Motion_2026-10-06-121029_host.diag"))
     try write(reports.appendingPathComponent("Retired/Final Cut Pro_2026-10-01-000000_host.diag"))
 
-    let found = LeftoverScanner.scan(identity: finalCut, library: library, systemLibrary: system)
+    let found = LeftoverScanner.scan(identity: finalCut, library: library, systemLibrary: system, darwinUserCache: nil)
     #expect(found.count == 1)
     let row = try #require(found.first)
     #expect(row.category == .systemCrashReports && row.category.isSystemWide)
@@ -154,7 +154,7 @@ private func writePlist(_ url: URL, _ plist: [String: Any]) throws {
     try write(library.appendingPathComponent("Group Containers/PTN9T2S29T.com.apple.videoProApps/x"))
     try write(library.appendingPathComponent("Containers/com.apple.FinalCut/x"))
     let others = OtherApps(groups: ["ptn9t2s29t.com.apple.videoproapps": ["Motion"]])
-    let found = LeftoverScanner.scan(identity: finalCut, others: others, library: library, systemLibrary: nil)
+    let found = LeftoverScanner.scan(identity: finalCut, others: others, library: library, systemLibrary: nil, darwinUserCache: nil)
     #expect(found.map(\.sharedWith) == [[], ["Motion"]])
     // Even with everything checked, a shared item that appears after the
     // quit isn't taken.
@@ -176,7 +176,7 @@ private func writePlist(_ url: URL, _ plist: [String: Any]) throws {
         try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cacheData.path)
         try? FileManager.default.removeItem(at: root)
     }
-    let found = LeftoverScanner.scan(identity: finalCut, library: library, systemLibrary: nil)
+    let found = LeftoverScanner.scan(identity: finalCut, library: library, systemLibrary: nil, darwinUserCache: nil)
     #expect(found.map(\.category) == [.caches, .containers])
     // Only containers: elsewhere an unreadable folder is just unreadable.
     #expect(found.map(\.isProtected) == [false, true])
@@ -293,7 +293,7 @@ private func writePlist(_ url: URL, _ plist: [String: Any]) throws {
     try write(folder.appendingPathComponent("com.paulthetall.portingkit.sfl4"))
     try write(folder.appendingPathComponent("com.paulthetall.portingkit.helper.sfl4"))  // not the app's own list
     let found = LeftoverScanner.scan(identity: AppIdentity(bundleID: "com.paulthetall.portingkit", names: ["Porting Kit"]),
-                                     library: library, systemLibrary: nil)
+                                     library: library, systemLibrary: nil, darwinUserCache: nil)
     #expect(found.map(\.url.lastPathComponent) == ["com.paulthetall.portingkit.sfl4"])
     // The folder could be listed here, so nothing needed Full Disk Access.
     #expect(found.map(\.isProtected) == [false])

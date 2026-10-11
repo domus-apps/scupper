@@ -1,7 +1,7 @@
 import AppKit
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let updater = UpdaterController()
     private let model = ScupperModel()
     private var windowController: MainWindowController?
@@ -91,6 +91,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 title: L("Close Window"),
                 action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
 
+        let editMenu = NSMenu(title: L("Edit"))
+        editMenu.addItem(NSMenuItem(title: L("Cut"), action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+        editMenu.addItem(NSMenuItem(title: L("Copy"), action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+        editMenu.addItem(NSMenuItem(title: L("Paste"), action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+        editMenu.addItem(NSMenuItem(title: L("Select All"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+        editMenu.addItem(.separator())
+        let findItem = NSMenuItem(title: L("Find…"), action: #selector(find(_:)), keyEquivalent: "f")
+        findItem.target = self
+        editMenu.addItem(findItem)
+
         let windowMenu = NSMenu(title: L("Window"))
         windowMenu.addItem(
             NSMenuItem(
@@ -98,7 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"))
 
         let mainMenu = NSMenu()
-        for submenu in [appMenu, fileMenu, windowMenu] {
+        for submenu in [appMenu, fileMenu, editMenu, windowMenu] {
             let item = NSMenuItem()
             item.submenu = submenu
             mainMenu.addItem(item)
@@ -109,5 +119,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openDocument(_ sender: Any?) {
         model.chooseApp()
+    }
+
+    @objc private func find(_ sender: Any?) {
+        showWindow()
+        windowController?.focusSearch()
+    }
+
+    // Find is for the list; the review has nothing to search.
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard menuItem.action == #selector(find(_:)) else { return true }
+        return ScupperModel.isChoosing(model.phase) && !model.installed.isEmpty
     }
 }

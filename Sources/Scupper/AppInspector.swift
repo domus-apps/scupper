@@ -96,9 +96,12 @@ enum AppInspector {
         let info = bundle.infoDictionary ?? [:]
         let localized = bundle.localizedInfoDictionary ?? [:]
         let fileName = url.deletingPathExtension().lastPathComponent
+        // An empty name counts as none (RapidAPI ships CFBundleDisplayName "").
         let displayName =
-            (localized["CFBundleDisplayName"] ?? info["CFBundleDisplayName"]
-                ?? localized["CFBundleName"] ?? info["CFBundleName"]) as? String ?? fileName
+            [localized["CFBundleDisplayName"], info["CFBundleDisplayName"],
+             localized["CFBundleName"], info["CFBundleName"]]
+            .lazy.compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty } ?? fileName
         var names: [String] = []
         for candidate in [displayName, fileName, info["CFBundleName"] as? String,
                           includingExecutable ? info["CFBundleExecutable"] as? String : nil] {
@@ -189,10 +192,9 @@ struct OtherApps: Equatable, Sendable {
    installed apps are asked what they use (well under a second for 100
    apps, run alongside the scan). */
 enum InstalledApps {
-    // macOS's own apps too: Safari shares a group with Tips.
-    static let folders = ["/Applications", "/Applications/Utilities", "/System/Applications",
-                          "/System/Applications/Utilities"]
-        + [FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications").path]
+    // The list's folders (and one level into them), and macOS's own apps
+    // too: Safari shares a group with Tips.
+    static let folders = AppList.folders + [URL(fileURLWithPath: "/System/Applications")]
 
     /// One installed app, as far as sharing is concerned.
     struct Entry: Sendable {
@@ -204,29 +206,23 @@ enum InstalledApps {
         var teamID: String? = nil
     }
 
-    static func catalog() -> [Entry] {
-        var entries: [Entry] = []
-        for folder in folders {
-            for name in (try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []
-            where name.hasSuffix(".app") {
-                let url = URL(fileURLWithPath: folder).appendingPathComponent(name)
-                    .standardizedFileURL.resolvingSymlinksInPath()
-                var entry = Entry(url: url, name: String(name.dropLast(4)), identifiers: [], groups: [])
-                /* The names it is known by, not its executable's: the Claude
-                   Code URL Handler runs "claude", but Application
-                   Support/Claude is the Claude app's alone. */
-                if let bundle = Bundle(url: url) {
-                    entry.names = AppInspector.names(of: bundle, at: url, includingExecutable: false).all
-                }
-                entry.teamID = CodeSignature.teamID(of: url)
-                for bundle in [url] + AppInspector.nestedBundles(in: url) {
-                    if let id = Bundle(url: bundle)?.bundleIdentifier, !id.isEmpty { entry.identifiers.append(id) }
-                    entry.groups += CodeSignature.appGroups(of: bundle)
-                }
-                entries.append(entry)
+    static func catalog(in folders: [URL] = folders) -> [Entry] {
+        AppList.bundles(in: folders).map { url in
+            var entry = Entry(url: url, name: url.deletingPathExtension().lastPathComponent,
+                              identifiers: [], groups: [])
+            /* The names it is known by, not its executable's: the Claude
+               Code URL Handler runs "claude", but Application
+               Support/Claude is the Claude app's alone. */
+            if let bundle = Bundle(url: url) {
+                entry.names = AppInspector.names(of: bundle, at: url, includingExecutable: false).all
             }
+            entry.teamID = CodeSignature.teamID(of: url)
+            for bundle in [url] + AppInspector.nestedBundles(in: url) {
+                if let id = Bundle(url: bundle)?.bundleIdentifier, !id.isEmpty { entry.identifiers.append(id) }
+                entry.groups += CodeSignature.appGroups(of: bundle)
+            }
+            return entry
         }
-        return entries
     }
 
     static func claims(excluding app: URL, in catalog: [Entry]? = nil) -> OtherApps {

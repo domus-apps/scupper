@@ -125,7 +125,7 @@ private let code = AppIdentity(bundleID: "com.microsoft.VSCode", names: ["Visual
     try write("Logs/AppAnalytics/com.jhaemin.sill.1C8B3E6A-1D2F-4E5A-9B7C-123456789ABC.json", bytes: 7)
     try write("Logs/AppAnalytics/com.jhaemin.coffer.2C8B3E6A-1D2F-4E5A-9B7C-123456789ABC.json", bytes: 7)
 
-    let found = LeftoverScanner.scan(identity: sill, library: library, systemLibrary: nil)
+    let found = LeftoverScanner.scan(identity: sill, library: library, systemLibrary: nil, darwinUserCache: nil)
     // The temp folder is a symlink (/var → /private/var); compare resolved paths.
     let base = library.resolvingSymlinksInPath().path
     let paths = found.map { String($0.url.resolvingSymlinksInPath().path.dropFirst(base.count + 1)) }
@@ -184,7 +184,7 @@ private let code = AppIdentity(bundleID: "com.microsoft.VSCode", names: ["Visual
     // Named for the app, but the user's own: no identifier, never taken.
     try plugIn("Services/Sill.workflow", id: nil)
 
-    let found = LeftoverScanner.scan(identity: sill, library: library, systemLibrary: nil)
+    let found = LeftoverScanner.scan(identity: sill, library: library, systemLibrary: nil, darwinUserCache: nil)
     let base = library.resolvingSymlinksInPath().path
     let paths = found.map { String($0.url.resolvingSymlinksInPath().path.dropFirst(base.count + 1)) }
     #expect(paths == [
@@ -260,4 +260,28 @@ private let code = AppIdentity(bundleID: "com.microsoft.VSCode", names: ["Visual
     #expect(LeftoverMatcher.matches("com.jhaemin.sill.sfl3", in: .recentDocuments, identity: sill))
     #expect(LeftoverMatcher.matches("com.jhaemin.sill.sfl2", in: .recentDocuments, identity: sill))
     #expect(!LeftoverMatcher.matches("com.jhaemin.sill", in: .recentDocuments, identity: sill))
+}
+
+@Test func macOSCachesOutsideTheLibraryAreFoundByIdentifier() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("scupper-test-\(UUID().uuidString)")
+    let cache = root.appendingPathComponent("C")
+    defer { try? FileManager.default.removeItem(at: root) }
+    for name in ["com.jhaemin.sill/com.apple.metal/shaders", "com.jhaemin.sill.helper/com.apple.metal/shaders",
+                 "2BUA8C4S2C.com.jhaemin.sill/data", "com.jhaemin.sillage/data", "Sill/data",
+                 "com.jhaemin.coffer/data"] {
+        let url = cache.appendingPathComponent(name)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0x41, count: 10).write(to: url)
+    }
+
+    let found = LeftoverScanner.scan(
+        identity: sill, library: root.appendingPathComponent("Library"), systemLibrary: nil, darwinUserCache: cache)
+    // Its identifier, a helper's under it, and the team-prefixed form; not a
+    // longer identifier or the plain name.
+    #expect(found.map(\.url.lastPathComponent) == [
+        "2BUA8C4S2C.com.jhaemin.sill", "com.jhaemin.sill", "com.jhaemin.sill.helper",
+    ])
+    #expect(found.allSatisfy { $0.category == .darwinUserCache && !$0.category.isSystemWide })
+    #expect(LeftoverMatcher.strippingTeamID(from: "com.jhaemin.sill") == nil)
 }

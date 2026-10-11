@@ -1,25 +1,125 @@
 import AppKit
+import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
 // MARK: - Window
 
-final class MainWindowController: NSWindowController {
+final class MainWindowController: NSWindowController, NSToolbarDelegate, NSSearchFieldDelegate {
+    private static let searchItemID = NSToolbarItem.Identifier("search")
+
+    private let model: ScupperModel
+    private let searchItem = NSSearchToolbarItem(itemIdentifier: MainWindowController.searchItemID)
+    private var observers: Set<AnyCancellable> = []
+
     init(model: ScupperModel) {
+        self.model = model
         let window = NSWindow(contentViewController: NSHostingController(rootView: ScupperView(model: model)))
         window.title = "Scupper"
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         window.isReleasedWhenClosed = false
-        window.setContentSize(NSSize(width: 520, height: 580))
-        window.minSize = NSSize(width: 440, height: 360)
+        /* The roomy title bar of the other Domus windows: a unified toolbar
+           centers the traffic lights in a 52pt bar, and the list scrolls
+           beneath it, blurred by the system as in Finder. */
+        window.toolbarStyle = .unified
+        window.setContentSize(NSSize(width: 460, height: 520))
+        window.minSize = NSSize(width: 400, height: 360)
         window.center()
-        window.setFrameAutosaveName("Main")
+        window.setFrameAutosaveName("Main Window")
         super.init(window: window)
+
+        searchItem.searchField.placeholderString = L("Search Apps")
+        // Wide enough for a name, narrow enough to leave the title whole.
+        searchItem.preferredWidthForSearchField = 180
+        searchItem.searchField.delegate = self
+        let toolbar = NSToolbar(identifier: "Main")
+        toolbar.displayMode = .iconOnly
+        toolbar.delegate = self
+        window.toolbar = toolbar
+
+        model.$phase
+            .sink { [weak self] phase in self?.update(for: phase) }
+            .store(in: &observers)
+        model.$query
+            .sink { [weak self] query in
+                guard let field = self?.searchItem.searchField, field.stringValue != query else { return }
+                field.stringValue = query
+            }
+            .store(in: &observers)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    /* The search belongs to the list. It waits for a click or ⌘F; the
+       list itself has the keyboard when it comes up. */
+    private func update(for phase: ScupperModel.Phase) {
+        let choosing = ScupperModel.isChoosing(phase)
+        searchItem.isHidden = !choosing
+        if !choosing {
+            DispatchQueue.main.async { [weak self] in self?.searchItem.endSearchInteraction() }
+        }
+    }
+
+    /// Esc: the search is cleared and the keyboard goes back to the list.
+    private func cancelSearch() {
+        model.query = ""
+        searchItem.searchField.stringValue = ""
+        searchItem.endSearchInteraction()
+        guard let window, let content = window.contentView else { return }
+        func table(in view: NSView) -> NSTableView? {
+            if let table = view as? NSTableView { return table }
+            return view.subviews.lazy.compactMap(table(in:)).first
+        }
+        window.makeFirstResponder(table(in: content))
+    }
+
+    /// Edit > Find (⌘F).
+    func focusSearch() {
+        guard ScupperModel.isChoosing(model.phase) else { return }
+        searchItem.beginSearchInteraction()
+    }
+
+    // MARK: Toolbar
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.flexibleSpace, Self.searchItemID]
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        toolbarDefaultItemIdentifiers(toolbar)
+    }
+
+    func toolbar(
+        _ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier,
+        willBeInsertedIntoToolbar flag: Bool
+    ) -> NSToolbarItem? {
+        identifier == Self.searchItemID ? searchItem : nil
+    }
+
+    // MARK: Search field
+
+    func controlTextDidChange(_ notification: Notification) {
+        model.query = searchItem.searchField.stringValue
+    }
+
+    /* The arrow keys and Return go to the list, the way Spotlight's do. */
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        switch selector {
+        case #selector(NSResponder.moveUp(_:)):
+            model.moveListSelection(by: -1)
+        case #selector(NSResponder.moveDown(_:)):
+            model.moveListSelection(by: 1)
+        case #selector(NSResponder.insertNewline(_:)):
+            model.openListSelection()
+        case #selector(NSResponder.cancelOperation(_:)):
+            cancelSearch()
+        default:
+            return false
+        }
+        return true
     }
 }
 
@@ -47,10 +147,101 @@ final class ScupperModel: ObservableObject {
     @Published var includeApp = true
     @Published var isTargeted = false
 
+    /// The start screen's list of installed apps, and their sizes as they
+    /// are measured.
+    @Published private(set) var installed: [ListedApp] = []
+    @Published private(set) var installedSizes: [URL: Int64] = [:]
+    @Published private(set) var hasListedApps = false
+    @Published var query = "" {
+        /* The best match is ready for Return. Clearing the search keeps
+           the app it found selected. */
+        didSet {
+            guard query != oldValue else { return }
+            if query.isEmpty, listSelection != nil { return }
+            listSelection = visibleApps.first?.url
+        }
+    }
+    @Published var listSelection: URL?
+    @Published var sort = AppSort.saved {
+        didSet { if sort != oldValue { sort.save() } }
+    }
+
     private var scanTask: Task<Void, Never>?
+    private var listTask: Task<Void, Never>?
     private var others = OtherApps.none
 
+    init() {
+        listApps()
+    }
+
+    /* Listed again whenever the start screen comes back, so a removed app
+       is gone from it. Sizes already known are kept; the rest are measured
+       one app at a time in the background. */
+    func listApps() {
+        listTask?.cancel()
+        listTask = Task { [weak self] in
+            let apps = await Task.detached(priority: .userInitiated) { AppList.installed() }.value
+            guard let self, !Task.isCancelled else { return }
+            self.installed = apps
+            self.hasListedApps = true
+            if let selection = self.listSelection, !apps.contains(where: { $0.url == selection }) {
+                self.listSelection = nil
+            }
+            // A search typed before the list arrived gets its best match too.
+            if self.listSelection == nil, !self.query.isEmpty {
+                self.listSelection = self.visibleApps.first?.url
+            }
+            /* A few at a time, in list order, so the rows on screen fill in
+               first and one large app (Xcode) doesn't hold up the rest. */
+            let pending = apps.map(\.url).filter { self.installedSizes[$0] == nil }
+            await withTaskGroup(of: (URL, Int64).self) { group in
+                var next = 0
+                func measureNext() {
+                    guard next < pending.count else { return }
+                    let url = pending[next]
+                    next += 1
+                    group.addTask(priority: .utility) { (url, LeftoverScanner.size(of: url)) }
+                }
+                for _ in 0..<4 { measureNext() }
+                for await (url, size) in group {
+                    guard !Task.isCancelled else {
+                        group.cancelAll()
+                        return
+                    }
+                    self.installedSizes[url] = size
+                    measureNext()
+                }
+            }
+        }
+    }
+
+    static func isChoosing(_ phase: Phase) -> Bool {
+        switch phase {
+        case .empty, .failed: true
+        default: false
+        }
+    }
+
+    /// The installed apps that match the search, in the chosen order.
+    var visibleApps: [ListedApp] {
+        AppList.sorted(AppList.filter(installed, by: query), by: sort, sizes: installedSizes)
+    }
+
+    func moveListSelection(by delta: Int) {
+        let apps = visibleApps
+        guard !apps.isEmpty else { return }
+        let current = apps.firstIndex { $0.url == listSelection }
+        let next = current.map { $0 + delta } ?? (delta > 0 ? 0 : apps.count - 1)
+        listSelection = apps[min(max(next, 0), apps.count - 1)].url
+    }
+
+    func openListSelection() {
+        if let listSelection { open(listSelection) }
+    }
+
     func open(_ url: URL) {
+        // Return can reach both the list and the default button.
+        if phase == .scanning, app?.url == url.standardizedFileURL.resolvingSymlinksInPath() { return }
         guard let inspected = AppInspector.inspect(url) else {
             phase = .failed(L("That isn't an app, or it has no bundle identifier."))
             return
@@ -206,6 +397,7 @@ final class ScupperModel: ObservableObject {
         selection = []
         appSize = nil
         phase = .empty
+        listApps()
     }
 }
 
@@ -229,7 +421,11 @@ struct ScupperView: View {
         Group {
             switch model.phase {
             case .empty, .failed:
-                EmptyStateView(model: model)
+                if model.hasListedApps && model.installed.isEmpty {
+                    EmptyStateView(model: model)
+                } else {
+                    AppListView(model: model)
+                }
             case .scanning:
                 ProgressView(L("Looking for leftovers…"))
                     .controlSize(.large)
@@ -394,17 +590,19 @@ struct ReviewView: View {
                     ProgressView()
                         .controlSize(.small)
                 } else {
-                    Button(L("Choose Another…")) {
+                    // Back to the list, with this app still selected there.
+                    Button(L("Cancel")) {
                         model.reset()
                     }
+                    .keyboardShortcut(.cancelAction)
                     Button(L("Move to Trash")) {
                         model.remove()
                     }
-                    .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(model.selectedCount == 0)
                 }
             }
+            .controlSize(.large)
             .padding()
         }
     }
@@ -487,6 +685,7 @@ struct DoneView: View {
                 Button(L("Done")) {
                     model.reset()
                 }
+                .controlSize(.large)
                 .keyboardShortcut(.defaultAction)
             }
             if !summary.failures.isEmpty {

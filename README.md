@@ -13,7 +13,8 @@ Library; drop the app on Scupper instead and they go out with it.
 
 ## How it works
 
-Drop an app onto the window or the Dock icon. Scupper reads the app's bundle
+Pick an app from the list of installed apps, which you can search (⌘F) and
+sort by name or size, or drop one onto the window or the Dock icon. Scupper reads the app's bundle
 identifier and names, then looks through your Library in the places apps
 keep things: Application Support, Caches, Preferences, Containers, Group
 Containers, Saved Application State, HTTPStorages, WebKit, Logs, crash
@@ -23,7 +24,9 @@ plug-ins (Quick Look, Spotlight, input methods,
 audio units, screen savers, Services). Vendor folders such as Application
 Support/Google are looked into one level down. Crash reports are matched by
 the app's name, its helper processes included (`Notion Helper`), in your
-Library and in the system's diagnostic reports. Folders that collect one small
+Library and in the system's diagnostic reports. Outside the Library, it also
+looks in the cache folder macOS keeps for each app under `/var/folders`
+(graphics shader caches, mostly). Folders that collect one small
 file per launch, like the analytics records, show as a single row.
 Everything it finds is listed with its size, checked, and one click moves it
 to the Trash along with the app. Nothing is deleted outright, so the Trash is

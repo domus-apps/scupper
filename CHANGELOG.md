@@ -4,6 +4,24 @@ All notable changes to Scupper are documented here. The release workflow publish
 
 Keep each bullet on a single line: release notes render line breaks literally (both on GitHub and in the update dialog), so wrapped lines would break mid-sentence.
 
+## 1.4.0
+
+### Added
+
+- Scupper opens on a list of your installed apps.
+- Command-F searches the list.
+- The list can be sorted by name or by size.
+- Caches that macOS keeps for each app outside the Library are found too.
+
+### Changed
+
+- Cancel or Esc on the review goes back to the list.
+
+### Fixed
+
+- Apps with an empty display name showed no name.
+- Items also used by an app inside a folder in Applications could start checked.
+
 ## 1.3.0
 
 ### Added
